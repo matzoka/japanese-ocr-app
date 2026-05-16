@@ -1,6 +1,6 @@
 # ============================================================
 #  日本語OCRアプリ
-#  エンジン: RapidOCR / Mistral OCR / PaddleOCR-VL
+#  エンジン: RapidOCR / Mistral OCR / Surya OCR
 #  対応: 日本語 / 英語 / 数字 混在PDF
 # ============================================================
 
@@ -11,22 +11,16 @@ import tempfile
 import time
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-import concurrent.futures
-import sys
 import threading
 import traceback
 
 from japanize import japanize
 
-PADDLE_VL_RENDER_DPI = 150
-PADDLE_VL_MAX_IMAGE_SIDE = 1600
-PADDLE_VL_MAX_PIXELS = 1600 * 1600
-
 
 class OCRApp:
     ENGINE_RAPID = "RapidOCR（ローカル・無料）"
     ENGINE_MISTRAL = "Mistral OCR（API・高精度）"
-    ENGINE_PADDLE_VL = "PaddleOCR-VL（無料・高精度）"
+    ENGINE_SURYA = "Surya OCR（無料・高品質）"
 
     COLOR_BG         = "#1e2a38"
     COLOR_ACCENT     = "#2ecc71"
@@ -50,7 +44,7 @@ class OCRApp:
 
         self.ocr_result = ""
         self._rapid_engine = None
-        self._paddle_vl_pipeline = None
+        self._surya_engine = None
         self._api_style = None
         self._cancel_flag = False
         self._elapsed_status_active = False
@@ -66,7 +60,7 @@ class OCRApp:
         tk.Label(hdr, text="日本語 OCR アプリ",
                  font=(self.FONT_JA, 17, "bold"),
                  fg=self.COLOR_ACCENT, bg=self.COLOR_PANEL).pack()
-        tk.Label(hdr, text="日本語・英語・数字の混在 PDF に対応  |  RapidOCR / Mistral OCR / PaddleOCR-VL",
+        tk.Label(hdr, text="日本語・英語・数字の混在 PDF に対応  |  RapidOCR / Mistral OCR / Surya OCR",
                  font=(self.FONT_JA, 9),
                  fg="#95a5a6", bg=self.COLOR_PANEL).pack()
 
@@ -156,7 +150,7 @@ class OCRApp:
         self.engine_combo = ttk.Combobox(
             f,
             textvariable=self.engine_var,
-            values=(self.ENGINE_RAPID, self.ENGINE_MISTRAL, self.ENGINE_PADDLE_VL),
+            values=(self.ENGINE_RAPID, self.ENGINE_MISTRAL, self.ENGINE_SURYA),
             state="readonly",
             font=(self.FONT_JA, 10),
         )
@@ -230,11 +224,6 @@ class OCRApp:
                     "Mistral OCR を使うには API キーが必要です。\n"
                     "API キー欄に入力するか、環境変数 MISTRAL_API_KEY を設定してください。")
                 return
-        if engine_name == self.ENGINE_PADDLE_VL:
-            messagebox.showwarning(
-                "PaddleOCR-VL",
-                "この環境ではCPU実行です。時間がかかります。"
-            )
         self._cancel_flag = False
         self.ocr_btn.config(state=tk.DISABLED)
         self.cancel_btn.config(state=tk.NORMAL)
@@ -292,8 +281,8 @@ class OCRApp:
     def _run_ocr(self, pdf_path, engine_name):
         if engine_name == self.ENGINE_MISTRAL:
             self._run_mistral_ocr(pdf_path)
-        elif engine_name == self.ENGINE_PADDLE_VL:
-            self._run_paddle_vl_ocr(pdf_path)
+        elif engine_name == self.ENGINE_SURYA:
+            self._run_surya_ocr(pdf_path)
         else:
             self._run_rapid_ocr(pdf_path)
 
@@ -437,146 +426,117 @@ class OCRApp:
             .strip()
         )
 
-    def _init_paddle_vl_pipeline(self):
+    def _init_surya_engine(self):
         try:
-            import paddle
+            from surya.ocr import run_ocr
+            from surya.model.detection.model import load_model as load_det_model
+            from surya.model.detection.processor import load_processor as load_det_processor
+            from surya.model.recognition.model import load_model as load_rec_model
+            from surya.model.recognition.processor import load_processor as load_rec_processor
         except ImportError as exc:
             raise RuntimeError(
-                "PaddleOCR-VL の推論エンジン paddlepaddle が未インストールです。\n\n"
-                "setup_paddle_vl.bat を実行してから、アプリを再起動してください。\n"
-                "Windows ネイティブ環境で動かない場合は、PaddleOCR-VL の公式推奨どおり "
-                "WSL / Docker / GPU 環境での実行を検討してください。"
+                "Surya OCR のモジュールが見つかりません。\n\n"
+                "pip install surya-ocr を実行してインストールしてください。"
             ) from exc
 
-        try:
-            paddle.utils.run_check()
-        except Exception as exc:
-            raise RuntimeError(
-                "paddlepaddle は見つかりましたが、現在の環境では正常に動作確認できませんでした。\n\n"
-                "PaddleOCR-VL は環境依存が強いため、Windows ネイティブ環境では "
-                "WSL / Docker / GPU 環境が必要になる場合があります。"
-            ) from exc
+        det_model = load_det_model()
+        det_processor = load_det_processor()
+        rec_model = load_rec_model()
+        rec_processor = load_rec_processor()
 
-        try:
-            from paddleocr import PaddleOCRVL
-        except ImportError as exc:
-            raise RuntimeError(
-                "PaddleOCR-VL を使うには追加セットアップが必要です。\n\n"
-                "setup_paddle_vl.bat を実行して、paddlepaddle と "
-                "paddleocr[doc-parser] をインストールしてください。"
-            ) from exc
-
-        kwargs = {
-            "pipeline_version": "v1.5",
-            "use_doc_orientation_classify": False,
-            "use_doc_unwarping": False,
-            "use_chart_recognition": False,
-            "use_seal_recognition": False,
+        return {
+            "det_model": det_model,
+            "det_processor": det_processor,
+            "rec_model": rec_model,
+            "rec_processor": rec_processor,
+            "langs": ["ja"],
         }
-        engine = os.environ.get("PADDLEOCR_VL_ENGINE", "").strip()
-        device = os.environ.get("PADDLEOCR_VL_DEVICE", "").strip()
-        if engine:
-            kwargs["engine"] = engine
-        if device:
-            kwargs["device"] = device
 
-        return PaddleOCRVL(**kwargs)
-
-    def _run_paddle_vl_ocr(self, pdf_path):
+    def _run_surya_ocr(self, pdf_path):
         try:
-            if self._paddle_vl_pipeline is None:
-                self._start_elapsed_status("PaddleOCR-VL 初期化中")
-                self._paddle_vl_pipeline = self._init_paddle_vl_pipeline()
+            if self._surya_engine is None:
+                self._start_elapsed_status("Surya OCR 初期化中")
+                self._surya_engine = self._init_surya_engine()
                 self._stop_elapsed_status()
 
-            self._start_elapsed_status("PaddleOCR-VL 推論中")
-            with tempfile.TemporaryDirectory(prefix="paddleocr_vl_") as output_dir:
-                page_images = self._render_pdf_for_paddle_vl(
-                    pdf_path, Path(output_dir))
-                total = len(page_images)
+            import pypdfium2 as pdfium
+            from surya.ocr import run_ocr
 
-                if total == 0:
-                    self.ocr_result = "（PDF から画像を生成できませんでした）"
-                    self._show_result(self.ocr_result)
-                    self._status("エラー: PDF ページ画像の生成に失敗しました")
-                    return
+            pdf = pdfium.PdfDocument(pdf_path)
+            total = len(pdf)
 
-                for page_no, page_image in enumerate(page_images, start=1):
+            lines = []
+            self._start_elapsed_status(f"Surya OCR 処理中 {total}ページ")
+            try:
+                for i in range(total):
                     if self._cancel_flag:
-                        self.ocr_result = "\n".join(
-                            self._read_markdown_parts(Path(output_dir)))
-                        if not self.ocr_result.strip():
-                            self.ocr_result = "（ユーザーによりキャンセルされました）"
-                        self._show_result(self.ocr_result)
-                        self._status("キャンセルされました")
-                        return
+                        lines.append("\n（ユーザーによりキャンセルされました）")
+                        break
 
                     self._set_elapsed_phase(
-                        f"PaddleOCR-VL 推論中 {page_no}/{total}",
-                        done_pages=page_no - 1,
-                    )
+                        f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i)
+
+                    bitmap = pil_img = predictions = None
                     try:
-                        print(f"[PaddleOCR-VL] ページ {page_no}/{total} 推論開始...",
-                              flush=True)
-                        executor = concurrent.futures.ThreadPoolExecutor(
-                            max_workers=1)
-                        try:
-                            future = executor.submit(
-                                self._paddle_vl_pipeline.predict,
-                                input=str(page_image),
-                                use_doc_orientation_classify=False,
-                                use_doc_unwarping=False,
-                                use_chart_recognition=False,
-                                use_seal_recognition=False,
-                                max_pixels=PADDLE_VL_MAX_PIXELS,
-                                max_new_tokens=1024,
-                            )
-                            output = future.result(timeout=600)
-                        finally:
-                            executor.shutdown(wait=False)
-                        print(f"[PaddleOCR-VL] ページ {page_no}/{total} 推論完了",
-                              flush=True)
-                        for res in output:
-                            res.save_to_markdown(save_path=output_dir)
-                        print(f"[PaddleOCR-VL] ページ {page_no}/{total} Markdown保存完了",
-                              flush=True)
-                    except concurrent.futures.TimeoutError:
-                        page_image.unlink(missing_ok=True)
-                        raise RuntimeError(
-                            f"PaddleOCR-VL の推論がタイムアウトしました（{page_no}ページ目）。\n"
-                            "CPU 環境では正しく動作しない可能性があります。\n"
-                            "RapidOCR エンジンをお試しください。"
+                        page = pdf[i]
+                        bitmap = page.render(scale=300 / 72)
+                        pil_img = bitmap.to_pil().convert("RGB")
+
+                        predictions = run_ocr(
+                            [pil_img],
+                            [self._surya_engine["langs"]],
+                            det_model=self._surya_engine["det_model"],
+                            det_processor=self._surya_engine["det_processor"],
+                            rec_model=self._surya_engine["rec_model"],
+                            rec_processor=self._surya_engine["rec_processor"],
                         )
+
+                        self._add_page_separator(lines, i + 1, total)
+
+                        if predictions and predictions[0].text_lines:
+                            for text_line in predictions[0].text_lines:
+                                if text_line.text and text_line.text.strip():
+                                    lines.append(japanize(text_line.text))
+                        else:
+                            lines.append(
+                                "（このページからテキストを検出できませんでした）")
+                        lines.append("")
                     except Exception as page_err:
-                        page_image.unlink(missing_ok=True)
-                        raise RuntimeError(
-                            f"PaddleOCR-VL 推論中にエラー（{page_no}ページ目）: {page_err}"
-                        )
+                        self._add_page_separator(lines, i + 1, total)
+                        lines.append(
+                            f"（ページ {i + 1} でエラー: {page_err}）")
+                        lines.append("")
+                    finally:
+                        if bitmap is not None:
+                            del bitmap, pil_img, predictions
 
                     self._set_elapsed_phase(
-                        f"PaddleOCR-VL 推論中 {page_no}/{total}",
-                        done_pages=page_no,
-                    )
+                        f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i + 1)
+            finally:
+                pdf.close()
 
-                markdown = self._read_markdown_output(Path(output_dir))
-
-            self.ocr_result = (
-                japanize(markdown.strip())
-                if markdown.strip()
-                else "（PaddleOCR-VL からテキストを取得できませんでした）"
-            )
+            self._stop_elapsed_status()
+            self.ocr_result = "\n".join(lines)
             self._show_result(self.ocr_result)
-            self._status("完了！ PaddleOCR-VL で処理しました。")
+            if not self._cancel_flag:
+                self._status(f"完了！ Surya OCR で {total} ページを処理しました。")
 
+        except ImportError as exc:
+            self._stop_elapsed_status()
+            self._show_error(
+                f"Surya OCR 用のモジュールが見つかりません:\n{exc}\n\n"
+                "pip install surya-ocr を実行してインストールしてください。")
+            self._status("エラー: モジュールが不足しています")
         except RuntimeError as exc:
-            self._show_error(f"PaddleOCR-VL 処理中にエラーが発生しました:\n\n{exc}")
+            self._stop_elapsed_status()
+            self._show_error(f"Surya OCR 処理中にエラーが発生しました:\n\n{exc}")
             self._status("エラーが発生しました")
         except Exception:
+            self._stop_elapsed_status()
             err = traceback.format_exc()
-            self._show_error(f"PaddleOCR-VL 処理中にエラーが発生しました:\n\n{err}")
+            self._show_error(f"Surya OCR 処理中にエラーが発生しました:\n\n{err}")
             self._status("エラーが発生しました")
         finally:
-            self._stop_elapsed_status()
             self.root.after(0, self._ocr_done)
 
     def _run_mistral_ocr(self, pdf_path):
@@ -676,54 +636,6 @@ class OCRApp:
             lines.append(f"\n{'─' * 40}")
             lines.append(f"  ページ {page_num} / {total}")
             lines.append(f"{'─' * 40}\n")
-
-    def _read_markdown_parts(self, output_dir: Path):
-        md_files = sorted(output_dir.rglob("*.md"))
-        parts = []
-        for idx, md_file in enumerate(md_files):
-            text = md_file.read_text(encoding="utf-8", errors="replace").strip()
-            if not text:
-                continue
-            parts.append(text)
-        return parts
-
-    def _read_markdown_output(self, output_dir: Path) -> str:
-        md_files = sorted(output_dir.rglob("*.md"))
-        parts = []
-        for idx, md_file in enumerate(md_files):
-            text = md_file.read_text(encoding="utf-8", errors="replace").strip()
-            if not text:
-                continue
-            self._add_page_separator(parts, idx + 1, len(md_files))
-            parts.append(text)
-            parts.append("")
-        return "\n".join(parts)
-
-    def _render_pdf_for_paddle_vl(self, pdf_path, output_dir: Path):
-        import pypdfium2 as pdfium
-
-        pdf = pdfium.PdfDocument(pdf_path)
-        image_paths = []
-        total = len(pdf)
-        try:
-            for i in range(total):
-                if self._cancel_flag:
-                    break
-                self._set_elapsed_phase(
-                    f"PaddleOCR-VL 前処理中 {i + 1}/{total}", done_pages=i)
-                page = pdf[i]
-                bitmap = page.render(scale=PADDLE_VL_RENDER_DPI / 72)
-                pil_img = bitmap.to_pil().convert("RGB")
-                pil_img.thumbnail(
-                    (PADDLE_VL_MAX_IMAGE_SIDE, PADDLE_VL_MAX_IMAGE_SIDE)
-                )
-                image_path = output_dir / f"paddle_vl_page_{i + 1:04d}.png"
-                pil_img.save(image_path)
-                image_paths.append(image_path)
-                del bitmap, pil_img
-        finally:
-            pdf.close()
-        return image_paths
 
     def _start_elapsed_status(self, phase):
         self._elapsed_status_active = True

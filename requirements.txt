@@ -10,10 +10,8 @@ rapidocr>=2.0.0
 # Mistral OCR API クライアント
 mistralai
 
-# PaddleOCR-VL は高精度な無料ローカル文書解析エンジンですが、
-# 環境依存とサイズが大きいため通常セットアップからは外しています。
-# 対応環境で使う場合は、README の手順に従って別途インストールしてください。
-# paddleocr[doc-parser]
+# Surya OCR（高品質な無料ローカルOCRエンジン、日本語対応）
+surya-ocr
 
 # ONNX 推論ランタイム（CPU版）
 onnxruntime>=1.14.0
