@@ -428,28 +428,24 @@ class OCRApp:
 
     def _init_surya_engine(self):
         try:
-            from surya.ocr import run_ocr
-            from surya.model.detection.model import load_model as load_det_model
-            from surya.model.detection.processor import load_processor as load_det_processor
-            from surya.model.recognition.model import load_model as load_rec_model
-            from surya.model.recognition.processor import load_processor as load_rec_processor
+            from surya.detection import DetectionPredictor
+            from surya.foundation import FoundationPredictor
+            from surya.recognition import RecognitionPredictor
+            from surya.common.surya.schema import TaskNames
         except ImportError as exc:
             raise RuntimeError(
                 "Surya OCR のモジュールが見つかりません。\n\n"
                 "pip install surya-ocr を実行してインストールしてください。"
             ) from exc
 
-        det_model = load_det_model()
-        det_processor = load_det_processor()
-        rec_model = load_rec_model()
-        rec_processor = load_rec_processor()
+        foundation_predictor = FoundationPredictor()
+        det_predictor = DetectionPredictor()
+        rec_predictor = RecognitionPredictor(foundation_predictor)
 
         return {
-            "det_model": det_model,
-            "det_processor": det_processor,
-            "rec_model": rec_model,
-            "rec_processor": rec_processor,
-            "langs": ["ja"],
+            "det_predictor": det_predictor,
+            "rec_predictor": rec_predictor,
+            "task_name": TaskNames.ocr_with_boxes,
         }
 
     def _run_surya_ocr(self, pdf_path):
@@ -460,7 +456,6 @@ class OCRApp:
                 self._stop_elapsed_status()
 
             import pypdfium2 as pdfium
-            from surya.ocr import run_ocr
 
             pdf = pdfium.PdfDocument(pdf_path)
             total = len(pdf)
@@ -482,13 +477,10 @@ class OCRApp:
                         bitmap = page.render(scale=300 / 72)
                         pil_img = bitmap.to_pil().convert("RGB")
 
-                        predictions = run_ocr(
+                        predictions = self._surya_engine["rec_predictor"](
                             [pil_img],
-                            [self._surya_engine["langs"]],
-                            det_model=self._surya_engine["det_model"],
-                            det_processor=self._surya_engine["det_processor"],
-                            rec_model=self._surya_engine["rec_model"],
-                            rec_processor=self._surya_engine["rec_processor"],
+                            task_names=[self._surya_engine["task_name"]],
+                            det_predictor=self._surya_engine["det_predictor"],
                         )
 
                         self._add_page_separator(lines, i + 1, total)
