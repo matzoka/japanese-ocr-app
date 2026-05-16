@@ -493,10 +493,12 @@ class OCRApp:
                             det_predictor=self._surya_engine["det_predictor"],
                         )
 
+                        text_lines = predictions[0].text_lines if predictions else []
+
                         self._add_page_separator(lines, i + 1, total)
 
-                        if predictions and predictions[0].text_lines:
-                            for text_line in predictions[0].text_lines:
+                        if text_lines:
+                            for text_line in text_lines:
                                 if text_line.text and text_line.text.strip():
                                     lines.append(japanize(text_line.text))
                         else:
@@ -506,20 +508,20 @@ class OCRApp:
                         layout_preds = self._surya_engine["layout_predictor"](
                             [pil_img])
                         if layout_preds:
-                            table_imgs = []
-                            for bbox in layout_preds[0].bboxes:
-                                if bbox.label in ("Table", "TableOfContents"):
-                                    table_imgs.append(pil_img.crop(bbox.bbox))
-                            if table_imgs:
-                                table_results = self._surya_engine[
-                                    "table_rec_predictor"](table_imgs)
-                                for tr in table_results:
-                                    table_text = self._table_to_markdown(tr)
-                                    if table_text:
-                                        lines.append("")
-                                        lines.append("【表】")
-                                        lines.append(table_text)
-                                        lines.append("")
+                            for lb in layout_preds[0].bboxes:
+                                if lb.label in ("Table", "TableOfContents"):
+                                    table_bbox = list(lb.bbox)
+                                    table_img = pil_img.crop(table_bbox)
+                                    table_results = self._surya_engine[
+                                        "table_rec_predictor"]([table_img])
+                                    for tr in table_results:
+                                        table_text = self._table_to_markdown(
+                                            tr, text_lines, table_bbox)
+                                        if table_text:
+                                            lines.append("")
+                                            lines.append("【表】")
+                                            lines.append(table_text)
+                                            lines.append("")
                         lines.append("")
                     except Exception as page_err:
                         self._add_page_separator(lines, i + 1, total)
@@ -657,36 +659,47 @@ class OCRApp:
             lines.append(f"  ページ {page_num} / {total}")
             lines.append(f"{'─' * 40}\n")
 
-    def _table_to_markdown(self, table_result):
+    def _table_to_markdown(self, table_result, text_lines, table_bbox):
+        from surya.common.polygon import PolygonBox
+
         cells = table_result.cells
         if not cells:
             return ""
+
+        cell_texts = {}
+        for cell in cells:
+            shifted_polygon = [
+                [p[0] + table_bbox[0], p[1] + table_bbox[1]]
+                for p in cell.polygon
+            ]
+            cell_in_page = PolygonBox(polygon=shifted_polygon)
+
+            matched = []
+            for tl in text_lines:
+                if tl.intersection_pct(cell_in_page) > 0.5:
+                    if tl.text and tl.text.strip():
+                        matched.append(tl.text)
+            cell_texts[(cell.row_id, cell.col_id or 0)] = matched
 
         grid = {}
         max_col = 0
         for cell in cells:
             row_id = cell.row_id
             col_id = cell.col_id or 0
-            grid.setdefault(row_id, {}).setdefault(col_id, []).append(cell)
+            key = (row_id, col_id)
+            text = " ".join(cell_texts.get(key, []))
+            grid.setdefault(row_id, {})[col_id] = text
             max_col = max(max_col, col_id + 1)
 
         if max_col == 0:
             return ""
 
-        sorted_row_ids = sorted(grid.keys())
+        sorted_rows = sorted(grid.keys())
         md_lines = []
-        for row_id in sorted_row_ids:
+        for row_id in sorted_rows:
             row_cells = []
             for col_id in range(max_col):
-                cell_texts = []
-                if row_id in grid and col_id in grid[row_id]:
-                    for cell in grid[row_id][col_id]:
-                        if cell.text_lines:
-                            for tl in cell.text_lines:
-                                text = tl.get("text", "") if isinstance(tl, dict) else getattr(tl, "text", "")
-                                if text:
-                                    cell_texts.append(text)
-                row_cells.append(" ".join(cell_texts).replace("\n", " "))
+                row_cells.append(grid.get(row_id, {}).get(col_id, ""))
             md_lines.append("| " + " | ".join(row_cells) + " |")
 
         if len(md_lines) > 1:
