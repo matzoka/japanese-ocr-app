@@ -3,7 +3,8 @@ title OCR App - Setup
 
 echo.
 echo  ============================================
-echo   Japanese OCR App - Setup (Multi Engine OCR)
+echo   Japanese OCR App - Setup
+echo   RapidOCR + Mistral OCR + Surya OCR
 echo  ============================================
 echo.
 
@@ -52,7 +53,7 @@ echo.
 
 REM -- Install packages --
 echo [4/4] Installing packages...
-echo       RapidOCR + ONNXRuntime + Mistral SDK. A few minutes.
+echo       RapidOCR + Mistral + Surya OCR. 数分かかります。
 echo.
 pip install -r requirements.txt
 if %errorlevel% neq 0 (
