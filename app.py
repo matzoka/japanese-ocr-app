@@ -431,20 +431,30 @@ class OCRApp:
             from surya.detection import DetectionPredictor
             from surya.foundation import FoundationPredictor
             from surya.recognition import RecognitionPredictor
+            from surya.layout import LayoutPredictor
+            from surya.table_rec import TableRecPredictor
             from surya.common.surya.schema import TaskNames
+            from surya.settings import settings
         except ImportError as exc:
             raise RuntimeError(
                 "Surya OCR のモジュールが見つかりません。\n\n"
                 "pip install surya-ocr を実行してインストールしてください。"
             ) from exc
 
-        foundation_predictor = FoundationPredictor()
+        ocr_foundation = FoundationPredictor()
         det_predictor = DetectionPredictor()
-        rec_predictor = RecognitionPredictor(foundation_predictor)
+        rec_predictor = RecognitionPredictor(ocr_foundation)
+
+        layout_foundation = FoundationPredictor(
+            checkpoint=settings.LAYOUT_MODEL_CHECKPOINT)
+        layout_predictor = LayoutPredictor(layout_foundation)
+        table_rec_predictor = TableRecPredictor()
 
         return {
             "det_predictor": det_predictor,
             "rec_predictor": rec_predictor,
+            "layout_predictor": layout_predictor,
+            "table_rec_predictor": table_rec_predictor,
             "task_name": TaskNames.ocr_with_boxes,
         }
 
@@ -471,7 +481,7 @@ class OCRApp:
                     self._set_elapsed_phase(
                         f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i)
 
-                    bitmap = pil_img = predictions = None
+                    bitmap = pil_img = predictions = layout_preds = None
                     try:
                         page = pdf[i]
                         bitmap = page.render(scale=300 / 72)
@@ -492,6 +502,24 @@ class OCRApp:
                         else:
                             lines.append(
                                 "（このページからテキストを検出できませんでした）")
+
+                        layout_preds = self._surya_engine["layout_predictor"](
+                            [pil_img])
+                        if layout_preds:
+                            table_imgs = []
+                            for bbox in layout_preds[0].bboxes:
+                                if bbox.label in ("Table", "TableOfContents"):
+                                    table_imgs.append(pil_img.crop(bbox.bbox))
+                            if table_imgs:
+                                table_results = self._surya_engine[
+                                    "table_rec_predictor"](table_imgs)
+                                for tr in table_results:
+                                    table_text = self._table_to_markdown(tr)
+                                    if table_text:
+                                        lines.append("")
+                                        lines.append("【表】")
+                                        lines.append(table_text)
+                                        lines.append("")
                         lines.append("")
                     except Exception as page_err:
                         self._add_page_separator(lines, i + 1, total)
@@ -500,7 +528,7 @@ class OCRApp:
                         lines.append("")
                     finally:
                         if bitmap is not None:
-                            del bitmap, pil_img, predictions
+                            del bitmap, pil_img, predictions, layout_preds
 
                     self._set_elapsed_phase(
                         f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i + 1)
@@ -628,6 +656,44 @@ class OCRApp:
             lines.append(f"\n{'─' * 40}")
             lines.append(f"  ページ {page_num} / {total}")
             lines.append(f"{'─' * 40}\n")
+
+    def _table_to_markdown(self, table_result):
+        cells = table_result.cells
+        if not cells:
+            return ""
+
+        grid = {}
+        max_col = 0
+        for cell in cells:
+            row_id = cell.row_id
+            col_id = cell.col_id or 0
+            grid.setdefault(row_id, {}).setdefault(col_id, []).append(cell)
+            max_col = max(max_col, col_id + 1)
+
+        if max_col == 0:
+            return ""
+
+        sorted_row_ids = sorted(grid.keys())
+        md_lines = []
+        for row_id in sorted_row_ids:
+            row_cells = []
+            for col_id in range(max_col):
+                cell_texts = []
+                if row_id in grid and col_id in grid[row_id]:
+                    for cell in grid[row_id][col_id]:
+                        if cell.text_lines:
+                            for tl in cell.text_lines:
+                                text = tl.get("text", "") if isinstance(tl, dict) else getattr(tl, "text", "")
+                                if text:
+                                    cell_texts.append(text)
+                row_cells.append(" ".join(cell_texts).replace("\n", " "))
+            md_lines.append("| " + " | ".join(row_cells) + " |")
+
+        if len(md_lines) > 1:
+            separator = "|" + "|".join(["---" for _ in range(max_col)]) + "|"
+            md_lines.insert(1, separator)
+
+        return "\n".join(md_lines)
 
     def _start_elapsed_status(self, phase):
         self._elapsed_status_active = True
