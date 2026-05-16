@@ -1,0 +1,26 @@
+# ========================================
+# 日本語OCRアプリ 依存パッケージ (Multi Engine OCR版)
+#   - PP-OCRv4 日本語モデル + ONNXRuntime
+#   - paddlepaddle 不要 / 軽量 / 高精度
+# ========================================
+
+# RapidOCR 本体（ONNXRuntime ベース、日本語対応）
+rapidocr>=2.0.0
+
+# Mistral OCR API クライアント
+mistralai
+
+# PaddleOCR-VL は高精度な無料ローカル文書解析エンジンですが、
+# 環境依存とサイズが大きいため通常セットアップからは外しています。
+# 対応環境で使う場合は、README の手順に従って別途インストールしてください。
+# paddleocr[doc-parser]
+
+# ONNX 推論ランタイム（CPU版）
+onnxruntime>=1.14.0
+
+# PDF→画像変換
+pypdfium2
+
+# 画像処理
+Pillow
+numpy<2.0.0

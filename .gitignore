@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.paddlex/
+backup_before_multi_engine_*/
+opencode.json
+*.png
+*.jpg
+*.md
