@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 > nul
 title Japanese OCR App
 
 REM -- Check venv exists --
