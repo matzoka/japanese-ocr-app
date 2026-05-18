@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 .paddlex/
 backup_before_multi_engine_*/
+config.json
 opencode.json
 *.png
 *.jpg

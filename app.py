@@ -5,6 +5,7 @@
 # ============================================================
 
 import base64
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -15,12 +16,18 @@ import threading
 import traceback
 
 from japanize import japanize
+from version import VERSION, DATE
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CONFIG_PATH = os.path.join(_HERE, "config.json")
 
 
 class OCRApp:
     ENGINE_RAPID = "RapidOCR（ローカル・無料）"
     ENGINE_MISTRAL = "Mistral OCR（API・高精度）"
     ENGINE_SURYA = "Surya OCR（無料・高品質）"
+
+    _ENGINE_VALUES = (ENGINE_RAPID, ENGINE_MISTRAL, ENGINE_SURYA)
 
     COLOR_BG         = "#1e2a38"
     COLOR_ACCENT     = "#2ecc71"
@@ -37,7 +44,8 @@ class OCRApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Japanese OCR App  -  Multi Engine OCR")
+        self._saved_engine = self._load_engine_config()
+        self.root.title(f"Japanese OCR App  v{VERSION} ({DATE})  -  Multi Engine OCR")
         self.root.geometry("860x710")
         self.root.minsize(700, 550)
         self.root.configure(bg=self.COLOR_BG)
@@ -63,6 +71,9 @@ class OCRApp:
         tk.Label(hdr, text="日本語・英語・数字の混在 PDF に対応  |  RapidOCR / Mistral OCR / Surya OCR",
                  font=(self.FONT_JA, 9),
                  fg="#95a5a6", bg=self.COLOR_PANEL).pack()
+        tk.Label(hdr, text=f"Version {VERSION}  （{DATE}）",
+                 font=(self.FONT_JA, 9),
+                 fg=self.COLOR_ACCENT, bg=self.COLOR_PANEL).pack()
 
         self._build_row("PDF ファイル", "file")
         self._build_row("テキスト保存先フォルダ", "output")
@@ -146,15 +157,16 @@ class OCRApp:
                  fg="#95a5a6", bg=self.COLOR_BG, width=18,
                  anchor=tk.W).pack(side=tk.LEFT)
 
-        self.engine_var = tk.StringVar(value=self.ENGINE_RAPID)
+        self.engine_var = tk.StringVar(value=self._saved_engine)
         self.engine_combo = ttk.Combobox(
             f,
             textvariable=self.engine_var,
-            values=(self.ENGINE_RAPID, self.ENGINE_MISTRAL, self.ENGINE_SURYA),
+            values=self._ENGINE_VALUES,
             state="readonly",
             font=(self.FONT_JA, 10),
         )
         self.engine_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine_changed)
 
     def _build_api_key_row(self):
         f = tk.Frame(self.root, bg=self.COLOR_BG)
@@ -185,6 +197,26 @@ class OCRApp:
     def _toggle_api_key_visibility(self):
         self._api_key_entry.config(
             show="" if self._show_key.get() else "*")
+
+    def _load_engine_config(self):
+        try:
+            with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+                engine = json.load(f).get("engine", "")
+            if engine in self._ENGINE_VALUES:
+                return engine
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        return self.ENGINE_RAPID
+
+    def _save_engine_config(self):
+        try:
+            with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump({"engine": self.engine_var.get()}, f, ensure_ascii=False)
+        except OSError:
+            pass
+
+    def _on_engine_changed(self, _event=None):
+        self._save_engine_config()
 
     def _btn(self, parent, text, color, cmd, bold=False, pady=8):
         fg = "#1e2a38" if color == self.COLOR_ACCENT else "white"
