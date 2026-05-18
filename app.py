@@ -5,6 +5,7 @@
 # ============================================================
 
 import base64
+from datetime import datetime
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import threading
 import traceback
 
+from database import init_db, upsert_record, search_records, get_record, delete_record
 from japanize import japanize
 from version import VERSION, DATE
 
@@ -43,6 +45,7 @@ class OCRApp:
     TEXT_LAYER_MIN_PAGE_CHARS = 60
 
     def __init__(self, root: tk.Tk):
+        init_db()
         self.root = root
         self._saved_engine = self._load_engine_config()
         self.root.title(f"Japanese OCR App  v{VERSION} ({DATE})  -  Multi Engine OCR")
@@ -59,6 +62,8 @@ class OCRApp:
         self._elapsed_started_at = None
         self._elapsed_phase = ""
         self._elapsed_done_pages = 0
+        self._last_ocr_info = None
+        self._current_engine = ""
         self._build_ui()
 
     # ── UI ───────────────────────────────────────────────────
@@ -98,6 +103,9 @@ class OCRApp:
 
         self._btn(btn_row, "クリア",
                    self.COLOR_BTN_GRAY, self.clear_all).pack(side=tk.LEFT, padx=6)
+
+        self._btn(btn_row, "DB 閲覧",
+                   self.COLOR_BTN_PURPLE, self._open_db_viewer).pack(side=tk.LEFT, padx=6)
 
         sf = tk.Frame(self.root, bg=self.COLOR_BG)
         sf.pack(fill=tk.X, padx=16, pady=(0, 4))
@@ -311,6 +319,7 @@ class OCRApp:
         return texts
 
     def _run_ocr(self, pdf_path, engine_name):
+        self._current_engine = engine_name
         if engine_name == self.ENGINE_MISTRAL:
             self._run_mistral_ocr(pdf_path)
         elif engine_name == self.ENGINE_SURYA:
@@ -394,6 +403,7 @@ class OCRApp:
             self._show_result(self.ocr_result)
             if not self._cancel_flag:
                 self._status(f"完了！ {total} ページを処理しました。")
+                self._set_last_ocr_info(pdf_path, total)
 
         except ImportError as exc:
             self._stop_elapsed_status()
@@ -574,6 +584,7 @@ class OCRApp:
             self._show_result(self.ocr_result)
             if not self._cancel_flag:
                 self._status(f"完了！ Surya OCR で {total} ページを処理しました。")
+                self._set_last_ocr_info(pdf_path, total)
 
         except ImportError as exc:
             self._stop_elapsed_status()
@@ -670,6 +681,7 @@ class OCRApp:
             self._show_result(self.ocr_result)
             if not self._cancel_flag:
                 self._status(f"完了！ Mistral OCR で {total} ページを処理しました。")
+                self._set_last_ocr_info(pdf_path, total)
 
         except ImportError as exc:
             self._show_error(
@@ -776,6 +788,7 @@ class OCRApp:
         self.engine_combo.config(state="readonly")
         if self.ocr_result.strip():
             self.save_btn.config(state=tk.NORMAL)
+            self._save_to_db()
 
     # ── 保存 ─────────────────────────────────────────────────
     def save_result(self):
@@ -797,6 +810,7 @@ class OCRApp:
     # ── クリア ───────────────────────────────────────────────
     def clear_all(self):
         self._cancel_flag = True
+        self._last_ocr_info = None
         self.file_var.set("")
         self.output_var.set("")
         self._clear_result()
@@ -813,6 +827,207 @@ class OCRApp:
         self.result_text.config(state=tk.NORMAL)
         self.result_text.delete(1.0, tk.END)
         self.result_text.config(state=tk.DISABLED)
+
+    # ── DB 登録 ─────────────────────────────────────────────
+    def _set_last_ocr_info(self, pdf_path, total):
+        self._last_ocr_info = {
+            "title": os.path.basename(pdf_path),
+            "ocr_type": self._current_engine,
+            "pages": total,
+            "source_path": pdf_path,
+        }
+
+    def _save_to_db(self):
+        if not self._last_ocr_info:
+            return
+        info = self._last_ocr_info
+        now = datetime.now()
+        try:
+            upsert_record(
+                title=info["title"],
+                ocr_type=info["ocr_type"],
+                pages=info["pages"],
+                source_path=info["source_path"],
+                ocr_text=self.ocr_result,
+                created_date=now.strftime("%Y-%m-%d"),
+                created_time=now.strftime("%H:%M:%S"),
+            )
+        except Exception:
+            pass
+
+    # ── DB 閲覧画面 ─────────────────────────────────────────
+    def _open_db_viewer(self):
+        win = tk.Toplevel(self.root)
+        win.title("OCR 履歴 DB 閲覧")
+        win.geometry("900x650")
+        win.minsize(700, 450)
+        win.configure(bg=self.COLOR_BG)
+        win.transient(self.root)
+        win.grab_set()
+
+        search_frm = tk.Frame(win, bg=self.COLOR_BG, pady=8)
+        search_frm.pack(fill=tk.X, padx=12)
+        tk.Label(search_frm, text="検索",
+                 font=(self.FONT_JA, 9, "bold"),
+                 fg="#95a5a6", bg=self.COLOR_BG).pack(side=tk.LEFT, padx=(0, 6))
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(search_frm, textvariable=search_var,
+                                font=(self.FONT_JA, 10),
+                                bg=self.COLOR_PANEL, fg=self.COLOR_TEXT,
+                                insertbackground=self.COLOR_TEXT,
+                                relief=tk.FLAT, bd=4)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        search_entry.bind("<Return>", lambda e: self._db_search(
+            win, search_var.get(), tree, detail_text, status_var))
+        self._btn(search_frm, "検索", self.COLOR_BTN_BLUE,
+                  lambda: self._db_search(
+                      win, search_var.get(), tree, detail_text, status_var),
+                  pady=4).pack(side=tk.LEFT, padx=3)
+        self._btn(search_frm, "全件", self.COLOR_BTN_GRAY,
+                  lambda: self._db_search(
+                      win, "", tree, detail_text, status_var),
+                  pady=4).pack(side=tk.LEFT, padx=3)
+
+        tree_frm = tk.Frame(win, bg=self.COLOR_BG)
+        tree_frm.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 4))
+        columns = ("id", "date", "title", "ocr_type", "pages")
+        tree = ttk.Treeview(tree_frm, columns=columns, show="headings",
+                            selectmode="browse")
+        tree.heading("id", text="ID")
+        tree.heading("date", text="登録日")
+        tree.heading("title", text="タイトル")
+        tree.heading("ocr_type", text="OCR種別")
+        tree.heading("pages", text="頁数")
+        tree.column("id", width=40, anchor=tk.CENTER)
+        tree.column("date", width=90, anchor=tk.CENTER)
+        tree.column("title", width=200)
+        tree.column("ocr_type", width=210)
+        tree.column("pages", width=50, anchor=tk.CENTER)
+
+        style = ttk.Style()
+        style.theme_use("default")
+        style.configure("Treeview",
+                        background=self.COLOR_PANEL,
+                        foreground=self.COLOR_TEXT,
+                        fieldbackground=self.COLOR_PANEL,
+                        font=(self.FONT_JA, 9))
+        style.configure("Treeview.Heading",
+                        font=(self.FONT_JA, 9, "bold"),
+                        background=self.COLOR_PANEL,
+                        foreground=self.COLOR_TEXT)
+        style.map("Treeview", background=[("selected", self.COLOR_BTN_BLUE)])
+
+        vsb = ttk.Scrollbar(tree_frm, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+
+        detail_text = scrolledtext.ScrolledText(
+            win, font=(self.FONT_JA, 11), wrap=tk.WORD,
+            bg="#1a252f", fg=self.COLOR_TEXT,
+            insertbackground=self.COLOR_TEXT,
+            selectbackground=self.COLOR_BTN_BLUE,
+            relief=tk.FLAT, height=14)
+        detail_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 6))
+
+        status_var = tk.StringVar(value="")
+        tk.Label(win, textvariable=status_var,
+                 font=(self.FONT_JA, 9), fg="#b2bec3", bg=self.COLOR_BG,
+                 anchor=tk.W).pack(fill=tk.X, padx=12, pady=(0, 4))
+
+        btn_row = tk.Frame(win, bg=self.COLOR_BG, pady=6)
+        btn_row.pack()
+        self._btn(btn_row, "この結果を表示", self.COLOR_ACCENT,
+                  lambda: self._db_load_to_main(
+                      win, tree, detail_text, status_var),
+                  pady=5).pack(side=tk.LEFT, padx=4)
+        self._btn(btn_row, "削除", self.COLOR_BTN_RED,
+                  lambda: self._db_delete(
+                      win, tree, detail_text, status_var),
+                  pady=5).pack(side=tk.LEFT, padx=4)
+        self._btn(btn_row, "閉じる", self.COLOR_BTN_GRAY,
+                  win.destroy, pady=5).pack(side=tk.LEFT, padx=4)
+
+        tree.bind("<<TreeviewSelect>>",
+                  lambda e: self._db_on_select(tree, detail_text, status_var))
+
+        self._db_search(win, "", tree, detail_text, status_var)
+        search_entry.focus_set()
+
+    def _db_search(self, win, query, tree, detail_text, status_var):
+        tree.delete(*tree.get_children())
+        detail_text.config(state=tk.NORMAL)
+        detail_text.delete(1.0, tk.END)
+        detail_text.config(state=tk.DISABLED)
+        try:
+            records = search_records(query)
+        except Exception:
+            status_var.set("DB 検索中にエラーが発生しました")
+            return
+        for r in records:
+            tree.insert("", tk.END,
+                        iid=str(r["id"]),
+                        values=(r["id"], r["created_date"],
+                                r["title"], r["ocr_type"], r["pages"]))
+        status_var.set(f"{len(records)} 件ヒット" if query else
+                       f"全 {len(records)} 件")
+
+    def _db_on_select(self, tree, detail_text, status_var):
+        sel = tree.selection()
+        if not sel:
+            return
+        record_id = int(sel[0])
+        try:
+            r = get_record(record_id)
+        except Exception:
+            return
+        if not r:
+            status_var.set("レコードが見つかりません")
+            return
+        detail_text.config(state=tk.NORMAL)
+        detail_text.delete(1.0, tk.END)
+        detail_text.insert(tk.END, r.get("ocr_text", ""))
+        detail_text.config(state=tk.DISABLED)
+        status_var.set(
+            f"選択中: {r['title']}  ({r['ocr_type']})  "
+            f"{r['created_date']} {r['created_time']}  "
+            f"{r['pages']}ページ")
+
+    def _db_load_to_main(self, win, tree, detail_text, status_var):
+        sel = tree.selection()
+        if not sel:
+            return
+        record_id = int(sel[0])
+        try:
+            r = get_record(record_id)
+        except Exception:
+            return
+        if not r:
+            return
+        self.ocr_result = r.get("ocr_text", "")
+        self._show_result(self.ocr_result)
+        self.save_btn.config(state=tk.NORMAL)
+        self._status(f"DB から読み込みました: {r['title']}  ({r['ocr_type']})")
+        win.destroy()
+
+    def _db_delete(self, win, tree, detail_text, status_var):
+        sel = tree.selection()
+        if not sel:
+            return
+        if not messagebox.askyesno("確認", "このレコードを削除しますか？"):
+            return
+        record_id = int(sel[0])
+        try:
+            delete_record(record_id)
+        except Exception:
+            status_var.set("削除中にエラーが発生しました")
+            return
+        tree.delete(sel[0])
+        detail_text.config(state=tk.NORMAL)
+        detail_text.delete(1.0, tk.END)
+        detail_text.config(state=tk.DISABLED)
+        status_var.set("削除しました")
+        self._db_search(win, "", tree, detail_text, status_var)
 
     def _show_result(self, text):
         def _u():

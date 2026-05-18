@@ -5,6 +5,7 @@ __pycache__/
 .paddlex/
 backup_before_multi_engine_*/
 config.json
+ocr_history.db
 opencode.json
 *.png
 *.jpg
