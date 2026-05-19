@@ -753,11 +753,13 @@ class OCRApp:
         return "\n".join(md_lines)
 
     def _start_elapsed_status(self, phase):
-        self._elapsed_status_active = True
-        self._elapsed_started_at = time.monotonic()
-        self._elapsed_phase = phase
-        self._elapsed_done_pages = 0
-        self.root.after(0, self._tick_elapsed_status)
+        def _start():
+            self._elapsed_status_active = True
+            self._elapsed_started_at = time.monotonic()
+            self._elapsed_phase = phase
+            self._elapsed_done_pages = 0
+            self._tick_elapsed_status()
+        self.root.after(0, _start)
 
     def _set_elapsed_phase(self, phase, done_pages=None):
         self._elapsed_phase = phase
@@ -765,7 +767,9 @@ class OCRApp:
             self._elapsed_done_pages = done_pages
 
     def _stop_elapsed_status(self):
-        self._elapsed_status_active = False
+        def _stop():
+            self._elapsed_status_active = False
+        self.root.after(0, _stop)
 
     def _tick_elapsed_status(self):
         if not self._elapsed_status_active or self._elapsed_started_at is None:
@@ -795,7 +799,11 @@ class OCRApp:
         if not self.ocr_result:
             return
         out_dir = self.output_var.get().strip() or os.path.expanduser("~")
-        base = os.path.splitext(os.path.basename(self.file_var.get()))[0]
+        file_path = self.file_var.get().strip()
+        if file_path:
+            base = os.path.splitext(os.path.basename(file_path))[0]
+        else:
+            base = "ocr_result"
         save_path = filedialog.asksaveasfilename(
             initialdir=out_dir,
             initialfile=f"{base}_ocr.txt",
@@ -803,9 +811,12 @@ class OCRApp:
             defaultextension=".txt",
             filetypes=[("テキストファイル", "*.txt"), ("すべてのファイル", "*.*")])
         if save_path:
-            with open(save_path, "w", encoding="utf-8") as f:
-                f.write(self.ocr_result)
-            messagebox.showinfo("保存完了", f"保存しました:\n{save_path}")
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(self.ocr_result)
+                messagebox.showinfo("保存完了", f"保存しました:\n{save_path}")
+            except Exception as e:
+                messagebox.showerror("保存エラー", f"ファイルの保存に失敗しました:\n{e}")
 
     # ── クリア ───────────────────────────────────────────────
     def clear_all(self):
@@ -1006,6 +1017,16 @@ class OCRApp:
             return
         self.ocr_result = r.get("ocr_text", "")
         self._show_result(self.ocr_result)
+
+        source_path = r.get("source_path", "")
+        if source_path:
+            self.file_var.set(source_path)
+            parent_dir = os.path.dirname(source_path)
+            if parent_dir:
+                self.output_var.set(parent_dir)
+        else:
+            self.file_var.set(r.get("title", ""))
+
         self.save_btn.config(state=tk.NORMAL)
         self._status(f"DB から読み込みました: {r['title']}  ({r['ocr_type']})")
         win.destroy()
