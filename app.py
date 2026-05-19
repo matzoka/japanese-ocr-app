@@ -915,7 +915,7 @@ class OCRApp:
 
     # ── DB 閲覧画面 ─────────────────────────────────────────
     def _open_db_viewer(self):
-        win = ctk.CToplevel(self.root)
+        win = ctk.CTkToplevel(self.root)
         win.title("OCR 履歴 DB 閲覧")
         win.geometry("950x700")
         win.minsize(750, 500)
