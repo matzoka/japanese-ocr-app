@@ -150,7 +150,7 @@ class OCRApp:
             rf, font=(self.FONT_JA, 14), wrap=tk.WORD,
             fg_color="#0f172a", text_color=self.COLOR_TEXT,
             border_color=self.COLOR_BORDER, border_width=1,
-            corner_radius=8, activate_scroll=True
+            corner_radius=8
         )
         self.result_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
         self.result_text.configure(state="disabled")
