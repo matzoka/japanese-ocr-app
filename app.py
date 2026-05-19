@@ -76,6 +76,7 @@ class OCRApp:
         self._last_ocr_info = None
         self._current_engine = ""
         self._build_ui()
+        self._setup_icon()
 
     # ── UI ───────────────────────────────────────────────────
     def _build_ui(self):
@@ -881,6 +882,23 @@ class OCRApp:
     def _status(self, msg):
         self.root.after(0, lambda: self.status_var.set(msg))
 
+    def _setup_icon(self):
+        icon_ico_path = os.path.join(_HERE, "icon.ico")
+        if not os.path.exists(icon_ico_path):
+            png_path = r"C:\Users\yasuo\.gemini\antigravity\brain\f79601cc-0ea8-473c-b030-a952dff4e997\app_icon_1779234932872.png"
+            if os.path.exists(png_path):
+                try:
+                    from PIL import Image
+                    img = Image.open(png_path)
+                    img.save(icon_ico_path, format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+                except Exception:
+                    pass
+        if os.path.exists(icon_ico_path):
+            try:
+                self.root.iconbitmap(icon_ico_path)
+            except Exception:
+                pass
+
     def _clear_result(self):
         self.result_text.configure(state="normal")
         self.result_text.delete("1.0", tk.END)
@@ -922,6 +940,13 @@ class OCRApp:
         win.configure(fg_color=self.COLOR_BG)
         win.transient(self.root)
         win.grab_set()
+
+        icon_ico_path = os.path.join(_HERE, "icon.ico")
+        if os.path.exists(icon_ico_path):
+            try:
+                win.iconbitmap(icon_ico_path)
+            except Exception:
+                pass
 
         # 検索フレーム
         search_frm = ctk.CTkFrame(win, fg_color=self.COLOR_PANEL, corner_radius=10, border_color=self.COLOR_BORDER, border_width=1)
