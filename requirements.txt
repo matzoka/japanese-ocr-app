@@ -22,3 +22,7 @@ pypdfium2
 # 画像処理
 Pillow
 numpy<2.0.0
+
+# UI Modernization
+customtkinter>=5.2.0
+darkdetect

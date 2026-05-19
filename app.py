@@ -12,9 +12,12 @@ from pathlib import Path
 import tempfile
 import time
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+from tkinter import filedialog, messagebox
 import threading
 import traceback
+from tkinter import ttk
+
+import customtkinter as ctk
 
 from database import init_db, upsert_record, search_records, get_record, delete_record
 from japanize import japanize
@@ -31,27 +34,35 @@ class OCRApp:
 
     _ENGINE_VALUES = (ENGINE_RAPID, ENGINE_MISTRAL, ENGINE_SURYA)
 
-    COLOR_BG         = "#1e2a38"
-    COLOR_ACCENT     = "#2ecc71"
-    COLOR_BTN_BLUE   = "#2980b9"
-    COLOR_BTN_PURPLE = "#8e44ad"
-    COLOR_BTN_GRAY   = "#636e72"
-    COLOR_BTN_RED    = "#e74c3c"
-    COLOR_TEXT       = "#ecf0f1"
-    COLOR_PANEL      = "#2c3e50"
+    # 近未来的サイバーダークカラーパレット
+    COLOR_BG         = "#0f172a"  # Slate 900
+    COLOR_PANEL      = "#1e293b"  # Slate 800
+    COLOR_ACCENT     = "#10b981"  # Emerald 500 (ネオングリーン)
+    COLOR_BTN_BLUE   = "#0284c7"  # Sky 600
+    COLOR_BTN_PURPLE = "#7c3aed"  # Violet 600
+    COLOR_BTN_GRAY   = "#475569"  # Slate 600
+    COLOR_BTN_RED    = "#ef4444"  # Red 500
+    COLOR_TEXT       = "#f1f5f9"  # Slate 100
+    COLOR_BORDER     = "#334155"  # Slate 700
+    
     FONT_JA          = "Yu Gothic UI"
 
     TEXT_LAYER_MIN_LENGTH = 40
     TEXT_LAYER_MIN_PAGE_CHARS = 60
 
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: ctk.CTk):
         init_db()
         self.root = root
+        
+        # テーマ設定
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+        
         self._saved_engine = self._load_engine_config()
-        self.root.title(f"Japanese OCR App  v{VERSION} ({DATE})  -  Multi Engine OCR")
-        self.root.geometry("860x710")
-        self.root.minsize(700, 550)
-        self.root.configure(bg=self.COLOR_BG)
+        self.root.title(f"Japanese OCR App  v{VERSION} ({DATE})")
+        self.root.geometry("900x780")
+        self.root.minsize(750, 600)
+        self.root.configure(fg_color=self.COLOR_BG)
 
         self.ocr_result = ""
         self._rapid_engine = None
@@ -68,37 +79,42 @@ class OCRApp:
 
     # ── UI ───────────────────────────────────────────────────
     def _build_ui(self):
-        hdr = tk.Frame(self.root, bg=self.COLOR_PANEL, pady=12)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="日本語 OCR アプリ",
-                 font=(self.FONT_JA, 17, "bold"),
-                 fg=self.COLOR_ACCENT, bg=self.COLOR_PANEL).pack()
-        tk.Label(hdr, text="日本語・英語・数字の混在 PDF に対応  |  RapidOCR / Mistral OCR / Surya OCR",
-                 font=(self.FONT_JA, 9),
-                 fg="#95a5a6", bg=self.COLOR_PANEL).pack()
-        tk.Label(hdr, text=f"Version {VERSION}  （{DATE}）",
-                 font=(self.FONT_JA, 9),
-                 fg=self.COLOR_ACCENT, bg=self.COLOR_PANEL).pack()
+        hdr = ctk.CTkFrame(self.root, fg_color=self.COLOR_PANEL, corner_radius=12, border_color=self.COLOR_BORDER, border_width=1)
+        hdr.pack(fill=tk.X, padx=16, pady=(16, 8))
+        
+        ctk.CTkLabel(hdr, text="日本語 OCR アプリ",
+                     font=(self.FONT_JA, 20, "bold"),
+                     text_color=self.COLOR_ACCENT).pack(pady=(12, 4))
+        ctk.CTkLabel(hdr, text="日本語・英語・数字の混在 PDF に対応  |  RapidOCR / Mistral OCR / Surya OCR",
+                     font=(self.FONT_JA, 12),
+                     text_color="#94a3b8").pack()
+        ctk.CTkLabel(hdr, text=f"Version {VERSION}  （{DATE}）",
+                     font=(self.FONT_JA, 10, "bold"),
+                     text_color=self.COLOR_ACCENT).pack(pady=(4, 12))
 
-        self._build_row("PDF ファイル", "file")
-        self._build_row("テキスト保存先フォルダ", "output")
-        self._build_engine_row()
-        self._build_api_key_row()
+        config_frame = ctk.CTkFrame(self.root, fg_color=self.COLOR_PANEL, corner_radius=12, border_color=self.COLOR_BORDER, border_width=1)
+        config_frame.pack(fill=tk.X, padx=16, pady=8)
 
-        btn_row = tk.Frame(self.root, bg=self.COLOR_BG, pady=8)
-        btn_row.pack()
+        self._build_row(config_frame, "PDF ファイル", "file")
+        self._build_row(config_frame, "テキスト保存先フォルダ", "output")
+        self._build_engine_row(config_frame)
+        self._build_api_key_row(config_frame)
+
+        btn_row = ctk.CTkFrame(self.root, fg_color="transparent")
+        btn_row.pack(pady=12)
+        
         self.ocr_btn = self._btn(btn_row, "OCR 開始",
-                                  self.COLOR_ACCENT, self.start_ocr, bold=True)
+                                  self.COLOR_ACCENT, self.start_ocr, bold=True, text_color="#0f172a")
         self.ocr_btn.pack(side=tk.LEFT, padx=6)
 
         self.cancel_btn = self._btn(btn_row, "キャンセル",
                                      self.COLOR_BTN_RED, self._cancel_ocr)
-        self.cancel_btn.config(state=tk.DISABLED)
+        self.cancel_btn.configure(state="disabled")
         self.cancel_btn.pack(side=tk.LEFT, padx=6)
 
         self.save_btn = self._btn(btn_row, "テキスト保存",
                                    self.COLOR_BTN_PURPLE, self.save_result)
-        self.save_btn.config(state=tk.DISABLED)
+        self.save_btn.configure(state="disabled")
         self.save_btn.pack(side=tk.LEFT, padx=6)
 
         self._btn(btn_row, "クリア",
@@ -107,103 +123,120 @@ class OCRApp:
         self._btn(btn_row, "DB 閲覧",
                    self.COLOR_BTN_PURPLE, self._open_db_viewer).pack(side=tk.LEFT, padx=6)
 
-        sf = tk.Frame(self.root, bg=self.COLOR_BG)
-        sf.pack(fill=tk.X, padx=16, pady=(0, 4))
+        sf = ctk.CTkFrame(self.root, fg_color="transparent")
+        sf.pack(fill=tk.X, padx=20, pady=(0, 6))
+        
         self.status_var = tk.StringVar(value="ファイルを選択して OCR 開始を押してください")
-        tk.Label(sf, textvariable=self.status_var,
-                 font=(self.FONT_JA, 9), fg="#b2bec3", bg=self.COLOR_BG,
-                 anchor=tk.W).pack(fill=tk.X)
+        ctk.CTkLabel(sf, textvariable=self.status_var,
+                     font=(self.FONT_JA, 12), text_color="#94a3b8",
+                     anchor="w").pack(fill=tk.X, pady=(0, 4))
 
-        style = ttk.Style()
-        style.theme_use("default")
-        style.configure("green.Horizontal.TProgressbar",
-                        troughcolor=self.COLOR_PANEL,
-                        background=self.COLOR_ACCENT)
-        self.progress = ttk.Progressbar(sf,
-                                         style="green.Horizontal.TProgressbar",
-                                         mode="indeterminate")
-        self.progress.pack(fill=tk.X, pady=(2, 0))
+        self.progress = ctk.CTkProgressBar(sf,
+                                           progress_color=self.COLOR_ACCENT,
+                                           fg_color=self.COLOR_BORDER,
+                                           height=8,
+                                           mode="indeterminate")
+        self.progress.pack(fill=tk.X)
+        self.progress.set(0)
 
-        rf = tk.LabelFrame(self.root, text="  OCR 結果  ",
-                            font=(self.FONT_JA, 10, "bold"),
-                            fg=self.COLOR_TEXT, bg=self.COLOR_BG,
-                            labelanchor="nw", padx=8, pady=8,
-                            relief=tk.FLAT, bd=1)
-        rf.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 14))
+        rf = ctk.CTkFrame(self.root, fg_color=self.COLOR_PANEL, corner_radius=12, border_color=self.COLOR_BORDER, border_width=1)
+        rf.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 16))
+        
+        ctk.CTkLabel(rf, text="  OCR 結果  ",
+                     font=(self.FONT_JA, 13, "bold"),
+                     text_color=self.COLOR_TEXT).pack(anchor="w", padx=16, pady=(10, 4))
 
-        self.result_text = scrolledtext.ScrolledText(
-            rf, font=(self.FONT_JA, 11), wrap=tk.WORD,
-            bg="#1a252f", fg=self.COLOR_TEXT,
-            insertbackground=self.COLOR_TEXT,
-            selectbackground=self.COLOR_BTN_BLUE,
-            relief=tk.FLAT, state=tk.DISABLED)
-        self.result_text.pack(fill=tk.BOTH, expand=True)
+        self.result_text = ctk.CTkTextbox(
+            rf, font=(self.FONT_JA, 14), wrap=tk.WORD,
+            fg_color="#0f172a", text_color=self.COLOR_TEXT,
+            border_color=self.COLOR_BORDER, border_width=1,
+            corner_radius=8, activate_scroll=True
+        )
+        self.result_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+        self.result_text.configure(state="disabled")
 
-    def _build_row(self, label, key):
-        f = tk.Frame(self.root, bg=self.COLOR_BG)
-        f.pack(fill=tk.X, padx=16, pady=(10, 0))
-        tk.Label(f, text=label,
-                 font=(self.FONT_JA, 9, "bold"),
-                 fg="#95a5a6", bg=self.COLOR_BG, width=18,
-                 anchor=tk.W).pack(side=tk.LEFT)
+    def _build_row(self, parent, label, key):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.pack(fill=tk.X, padx=16, pady=8)
+        
+        ctk.CTkLabel(f, text=label,
+                     font=(self.FONT_JA, 12, "bold"),
+                     text_color="#94a3b8", width=150,
+                     anchor="w").pack(side=tk.LEFT)
+                     
         var = tk.StringVar()
         setattr(self, f"{key}_var", var)
-        tk.Entry(f, textvariable=var,
-                 font=(self.FONT_JA, 10),
-                 bg=self.COLOR_PANEL, fg=self.COLOR_TEXT,
-                 insertbackground=self.COLOR_TEXT,
-                 relief=tk.FLAT, bd=4).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        entry = ctk.CTkEntry(f, textvariable=var,
+                             font=(self.FONT_JA, 13),
+                             fg_color="#0f172a", text_color=self.COLOR_TEXT,
+                             border_color=self.COLOR_BORDER,
+                             height=32, corner_radius=6)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
         cmd = self.browse_file if key == "file" else self.browse_output
-        self._btn(f, "参照...", self.COLOR_BTN_BLUE, cmd,
-                   pady=4).pack(side=tk.RIGHT, padx=(6, 0))
+        self._btn(f, "参照...", self.COLOR_BTN_BLUE, cmd, height=32).pack(side=tk.RIGHT)
 
-    def _build_engine_row(self):
-        f = tk.Frame(self.root, bg=self.COLOR_BG)
-        f.pack(fill=tk.X, padx=16, pady=(10, 0))
-        tk.Label(f, text="OCR エンジン",
-                 font=(self.FONT_JA, 9, "bold"),
-                 fg="#95a5a6", bg=self.COLOR_BG, width=18,
-                 anchor=tk.W).pack(side=tk.LEFT)
+    def _build_engine_row(self, parent):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.pack(fill=tk.X, padx=16, pady=8)
+        
+        ctk.CTkLabel(f, text="OCR エンジン",
+                     font=(self.FONT_JA, 12, "bold"),
+                     text_color="#94a3b8", width=150,
+                     anchor="w").pack(side=tk.LEFT)
 
         self.engine_var = tk.StringVar(value=self._saved_engine)
-        self.engine_combo = ttk.Combobox(
+        
+        self.engine_combo = ctk.CTkOptionMenu(
             f,
-            textvariable=self.engine_var,
+            variable=self.engine_var,
             values=self._ENGINE_VALUES,
-            state="readonly",
-            font=(self.FONT_JA, 10),
+            command=self._on_engine_changed,
+            font=(self.FONT_JA, 13),
+            dropdown_font=(self.FONT_JA, 13),
+            fg_color=self.COLOR_BORDER,
+            button_color=self.COLOR_BORDER,
+            button_hover_color=self.COLOR_BTN_BLUE,
+            dropdown_fg_color=self.COLOR_PANEL,
+            dropdown_hover_color=self.COLOR_BTN_BLUE,
+            dropdown_text_color=self.COLOR_TEXT,
+            height=32, corner_radius=6
         )
         self.engine_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.engine_combo.bind("<<ComboboxSelected>>", self._on_engine_changed)
 
-    def _build_api_key_row(self):
-        f = tk.Frame(self.root, bg=self.COLOR_BG)
-        f.pack(fill=tk.X, padx=16, pady=(10, 0))
-        tk.Label(f, text="Mistral API キー",
-                 font=(self.FONT_JA, 9, "bold"),
-                 fg="#95a5a6", bg=self.COLOR_BG, width=18,
-                 anchor=tk.W).pack(side=tk.LEFT)
-        self.api_key_var = tk.StringVar(
-            value=os.environ.get("MISTRAL_API_KEY", ""))
-        self._api_key_entry = tk.Entry(
+    def _build_api_key_row(self, parent):
+        f = ctk.CTkFrame(parent, fg_color="transparent")
+        f.pack(fill=tk.X, padx=16, pady=(8, 12))
+        
+        ctk.CTkLabel(f, text="Mistral API キー",
+                     font=(self.FONT_JA, 12, "bold"),
+                     text_color="#94a3b8", width=150,
+                     anchor="w").pack(side=tk.LEFT)
+                     
+        self.api_key_var = tk.StringVar(value=os.environ.get("MISTRAL_API_KEY", ""))
+        
+        self._api_key_entry = ctk.CTkEntry(
             f, textvariable=self.api_key_var,
-            font=(self.FONT_JA, 10), show="*",
-            bg=self.COLOR_PANEL, fg=self.COLOR_TEXT,
-            insertbackground=self.COLOR_TEXT,
-            relief=tk.FLAT, bd=4)
-        self._api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            font=(self.FONT_JA, 13), show="*",
+            fg_color="#0f172a", text_color=self.COLOR_TEXT,
+            border_color=self.COLOR_BORDER,
+            height=32, corner_radius=6)
+        self._api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
 
         self._show_key = tk.BooleanVar(value=False)
-        tk.Checkbutton(f, text="表示", variable=self._show_key,
-                       command=self._toggle_api_key_visibility,
-                       font=(self.FONT_JA, 9),
-                       fg="#95a5a6", bg=self.COLOR_BG,
-                       selectcolor=self.COLOR_PANEL,
-                       activebackground=self.COLOR_BG,
-                       activeforeground="#95a5a6").pack(side=tk.RIGHT, padx=(6, 0))
+        chk = ctk.CTkCheckBox(f, text="表示", variable=self._show_key,
+                               command=self._toggle_api_key_visibility,
+                               font=(self.FONT_JA, 12),
+                               text_color="#94a3b8",
+                               fg_color=self.COLOR_ACCENT,
+                               border_color=self.COLOR_BORDER,
+                               checkmark_color="#0f172a",
+                               width=60)
+        chk.pack(side=tk.RIGHT)
 
     def _toggle_api_key_visibility(self):
-        self._api_key_entry.config(
+        self._api_key_entry.configure(
             show="" if self._show_key.get() else "*")
 
     def _load_engine_config(self):
@@ -226,12 +259,25 @@ class OCRApp:
     def _on_engine_changed(self, _event=None):
         self._save_engine_config()
 
-    def _btn(self, parent, text, color, cmd, bold=False, pady=8):
-        fg = "#1e2a38" if color == self.COLOR_ACCENT else "white"
-        return tk.Button(parent, text=text, command=cmd,
-                         font=(self.FONT_JA, 11, "bold" if bold else "normal"),
-                         bg=color, fg=fg, activebackground=color,
-                         relief=tk.FLAT, padx=14, pady=pady, cursor="hand2")
+    def _btn(self, parent, text, color, cmd, bold=False, text_color="white", height=36):
+        if color == self.COLOR_ACCENT:
+            hover = "#34d399"
+        elif color == self.COLOR_BTN_BLUE:
+            hover = "#0ea5e9"
+        elif color == self.COLOR_BTN_PURPLE:
+            hover = "#8b5cf6"
+        elif color == self.COLOR_BTN_RED:
+            hover = "#f87171"
+        else:
+            hover = "#64748b"
+            
+        return ctk.CTkButton(
+            parent, text=text, command=cmd,
+            font=(self.FONT_JA, 13, "bold" if bold else "normal"),
+            fg_color=color, text_color=text_color,
+            hover_color=hover, height=height, corner_radius=8,
+            border_width=0
+        )
 
     # ── ダイアログ ───────────────────────────────────────────
     def browse_file(self):
@@ -265,18 +311,18 @@ class OCRApp:
                     "API キー欄に入力するか、環境変数 MISTRAL_API_KEY を設定してください。")
                 return
         self._cancel_flag = False
-        self.ocr_btn.config(state=tk.DISABLED)
-        self.cancel_btn.config(state=tk.NORMAL)
-        self.save_btn.config(state=tk.DISABLED)
-        self.engine_combo.config(state=tk.DISABLED)
+        self.ocr_btn.configure(state="disabled")
+        self.cancel_btn.configure(state="normal")
+        self.save_btn.configure(state="disabled")
+        self.engine_combo.configure(state="disabled")
         self._clear_result()
-        self.progress.start(10)
+        self.progress.start()
         threading.Thread(target=self._run_ocr,
-                         args=(pdf_path, engine_name), daemon=True).start()
+                          args=(pdf_path, engine_name), daemon=True).start()
 
     def _cancel_ocr(self):
         self._cancel_flag = True
-        self.cancel_btn.config(state=tk.DISABLED)
+        self.cancel_btn.configure(state="disabled")
         self._status("キャンセル中...")
 
     def _init_rapid_engine(self):
@@ -787,11 +833,12 @@ class OCRApp:
 
     def _ocr_done(self):
         self.progress.stop()
-        self.ocr_btn.config(state=tk.NORMAL)
-        self.cancel_btn.config(state=tk.DISABLED)
-        self.engine_combo.config(state="readonly")
+        self.progress.set(0)
+        self.ocr_btn.configure(state="normal")
+        self.cancel_btn.configure(state="disabled")
+        self.engine_combo.configure(state="normal")
         if self.ocr_result.strip():
-            self.save_btn.config(state=tk.NORMAL)
+            self.save_btn.configure(state="normal")
             self._save_to_db()
 
     # ── 保存 ─────────────────────────────────────────────────
@@ -826,8 +873,8 @@ class OCRApp:
         self.output_var.set("")
         self._clear_result()
         self.ocr_result = ""
-        self.save_btn.config(state=tk.DISABLED)
-        self.cancel_btn.config(state=tk.DISABLED)
+        self.save_btn.configure(state="disabled")
+        self.cancel_btn.configure(state="disabled")
         self.status_var.set("ファイルを選択して OCR 開始を押してください")
 
     # ── ユーティリティ ───────────────────────────────────────
@@ -835,9 +882,9 @@ class OCRApp:
         self.root.after(0, lambda: self.status_var.set(msg))
 
     def _clear_result(self):
-        self.result_text.config(state=tk.NORMAL)
-        self.result_text.delete(1.0, tk.END)
-        self.result_text.config(state=tk.DISABLED)
+        self.result_text.configure(state="normal")
+        self.result_text.delete("1.0", tk.END)
+        self.result_text.configure(state="disabled")
 
     # ── DB 登録 ─────────────────────────────────────────────
     def _set_last_ocr_info(self, pdf_path, total):
@@ -868,39 +915,47 @@ class OCRApp:
 
     # ── DB 閲覧画面 ─────────────────────────────────────────
     def _open_db_viewer(self):
-        win = tk.Toplevel(self.root)
+        win = ctk.CToplevel(self.root)
         win.title("OCR 履歴 DB 閲覧")
-        win.geometry("900x650")
-        win.minsize(700, 450)
-        win.configure(bg=self.COLOR_BG)
+        win.geometry("950x700")
+        win.minsize(750, 500)
+        win.configure(fg_color=self.COLOR_BG)
         win.transient(self.root)
         win.grab_set()
 
-        search_frm = tk.Frame(win, bg=self.COLOR_BG, pady=8)
-        search_frm.pack(fill=tk.X, padx=12)
-        tk.Label(search_frm, text="検索",
-                 font=(self.FONT_JA, 9, "bold"),
-                 fg="#95a5a6", bg=self.COLOR_BG).pack(side=tk.LEFT, padx=(0, 6))
+        # 検索フレーム
+        search_frm = ctk.CTkFrame(win, fg_color=self.COLOR_PANEL, corner_radius=10, border_color=self.COLOR_BORDER, border_width=1)
+        search_frm.pack(fill=tk.X, padx=16, pady=12)
+        
+        ctk.CTkLabel(search_frm, text=" 検索ワード:",
+                     font=(self.FONT_JA, 12, "bold"),
+                     text_color="#94a3b8").pack(side=tk.LEFT, padx=(12, 6), pady=10)
+                     
         search_var = tk.StringVar()
-        search_entry = tk.Entry(search_frm, textvariable=search_var,
-                                font=(self.FONT_JA, 10),
-                                bg=self.COLOR_PANEL, fg=self.COLOR_TEXT,
-                                insertbackground=self.COLOR_TEXT,
-                                relief=tk.FLAT, bd=4)
-        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        search_entry = ctk.CTkEntry(search_frm, textvariable=search_var,
+                                    font=(self.FONT_JA, 13),
+                                    fg_color="#0f172a", text_color=self.COLOR_TEXT,
+                                    border_color=self.COLOR_BORDER,
+                                    height=32, corner_radius=6)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        
         search_entry.bind("<Return>", lambda e: self._db_search(
             win, search_var.get(), tree, detail_text, status_var))
+            
         self._btn(search_frm, "検索", self.COLOR_BTN_BLUE,
                   lambda: self._db_search(
                       win, search_var.get(), tree, detail_text, status_var),
-                  pady=4).pack(side=tk.LEFT, padx=3)
+                  height=32).pack(side=tk.LEFT, padx=3)
+                  
         self._btn(search_frm, "全件", self.COLOR_BTN_GRAY,
                   lambda: self._db_search(
                       win, "", tree, detail_text, status_var),
-                  pady=4).pack(side=tk.LEFT, padx=3)
+                  height=32).pack(side=tk.LEFT, padx=3)
 
-        tree_frm = tk.Frame(win, bg=self.COLOR_BG)
-        tree_frm.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 4))
+        # テーブルフレーム
+        tree_frm = ctk.CTkFrame(win, fg_color=self.COLOR_PANEL, corner_radius=10, border_color=self.COLOR_BORDER, border_width=1)
+        tree_frm.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 8))
+        
         columns = ("id", "date", "title", "ocr_type", "pages")
         tree = ttk.Treeview(tree_frm, columns=columns, show="headings",
                             selectmode="browse")
@@ -910,54 +965,72 @@ class OCRApp:
         tree.heading("ocr_type", text="OCR種別")
         tree.heading("pages", text="頁数")
         tree.column("id", width=40, anchor=tk.CENTER)
-        tree.column("date", width=90, anchor=tk.CENTER)
-        tree.column("title", width=200)
+        tree.column("date", width=100, anchor=tk.CENTER)
+        tree.column("title", width=220)
         tree.column("ocr_type", width=210)
         tree.column("pages", width=50, anchor=tk.CENTER)
 
+        # Treeviewのスタイリング (ダークテーマに合わせる)
         style = ttk.Style()
         style.theme_use("default")
         style.configure("Treeview",
+                        background="#0f172a",
+                        foreground=self.COLOR_TEXT,
+                        fieldbackground="#0f172a",
+                        bordercolor=self.COLOR_BORDER,
+                        borderwidth=0,
+                        rowheight=26,
+                        font=(self.FONT_JA, 10))
+        style.configure("Treeview.Heading",
+                        font=(self.FONT_JA, 10, "bold"),
                         background=self.COLOR_PANEL,
                         foreground=self.COLOR_TEXT,
-                        fieldbackground=self.COLOR_PANEL,
-                        font=(self.FONT_JA, 9))
-        style.configure("Treeview.Heading",
-                        font=(self.FONT_JA, 9, "bold"),
-                        background=self.COLOR_PANEL,
-                        foreground=self.COLOR_TEXT)
-        style.map("Treeview", background=[("selected", self.COLOR_BTN_BLUE)])
+                        bordercolor=self.COLOR_BORDER,
+                        borderwidth=1)
+        style.map("Treeview", background=[("selected", self.COLOR_BTN_BLUE)], foreground=[("selected", "white")])
 
         vsb = ttk.Scrollbar(tree_frm, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=vsb.set)
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(10, 0), pady=10)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 10), pady=10)
 
-        detail_text = scrolledtext.ScrolledText(
-            win, font=(self.FONT_JA, 11), wrap=tk.WORD,
-            bg="#1a252f", fg=self.COLOR_TEXT,
-            insertbackground=self.COLOR_TEXT,
-            selectbackground=self.COLOR_BTN_BLUE,
-            relief=tk.FLAT, height=14)
-        detail_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 6))
+        # 詳細表示エリア (ctk.CTkTextbox)
+        detail_frm = ctk.CTkFrame(win, fg_color=self.COLOR_PANEL, corner_radius=10, border_color=self.COLOR_BORDER, border_width=1)
+        detail_frm.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 8))
+        
+        ctk.CTkLabel(detail_frm, text="  詳細表示  ",
+                     font=(self.FONT_JA, 12, "bold"),
+                     text_color=self.COLOR_TEXT).pack(anchor="w", padx=16, pady=(6, 2))
+                     
+        detail_text = ctk.CTkTextbox(
+            detail_frm, font=(self.FONT_JA, 13), wrap=tk.WORD,
+            fg_color="#0f172a", text_color=self.COLOR_TEXT,
+            border_color=self.COLOR_BORDER, border_width=1,
+            corner_radius=8
+        )
+        detail_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+        detail_text.configure(state="disabled")
 
         status_var = tk.StringVar(value="")
-        tk.Label(win, textvariable=status_var,
-                 font=(self.FONT_JA, 9), fg="#b2bec3", bg=self.COLOR_BG,
-                 anchor=tk.W).pack(fill=tk.X, padx=12, pady=(0, 4))
+        ctk.CTkLabel(win, textvariable=status_var,
+                     font=(self.FONT_JA, 11), text_color="#94a3b8",
+                     anchor="w").pack(fill=tk.X, padx=20, pady=(0, 4))
 
-        btn_row = tk.Frame(win, bg=self.COLOR_BG, pady=6)
-        btn_row.pack()
+        # ボタンエリア
+        btn_row = ctk.CTkFrame(win, fg_color="transparent")
+        btn_row.pack(pady=12)
+        
         self._btn(btn_row, "この結果を表示", self.COLOR_ACCENT,
                   lambda: self._db_load_to_main(
                       win, tree, detail_text, status_var),
-                  pady=5).pack(side=tk.LEFT, padx=4)
+                  text_color="#0f172a").pack(side=tk.LEFT, padx=6)
+                  
         self._btn(btn_row, "削除", self.COLOR_BTN_RED,
                   lambda: self._db_delete(
-                      win, tree, detail_text, status_var),
-                  pady=5).pack(side=tk.LEFT, padx=4)
+                      win, tree, detail_text, status_var)).pack(side=tk.LEFT, padx=6)
+                      
         self._btn(btn_row, "閉じる", self.COLOR_BTN_GRAY,
-                  win.destroy, pady=5).pack(side=tk.LEFT, padx=4)
+                  win.destroy).pack(side=tk.LEFT, padx=6)
 
         tree.bind("<<TreeviewSelect>>",
                   lambda e: self._db_on_select(tree, detail_text, status_var))
@@ -967,9 +1040,9 @@ class OCRApp:
 
     def _db_search(self, win, query, tree, detail_text, status_var):
         tree.delete(*tree.get_children())
-        detail_text.config(state=tk.NORMAL)
-        detail_text.delete(1.0, tk.END)
-        detail_text.config(state=tk.DISABLED)
+        detail_text.configure(state="normal")
+        detail_text.delete("1.0", tk.END)
+        detail_text.configure(state="disabled")
         try:
             records = search_records(query)
         except Exception:
@@ -995,10 +1068,10 @@ class OCRApp:
         if not r:
             status_var.set("レコードが見つかりません")
             return
-        detail_text.config(state=tk.NORMAL)
-        detail_text.delete(1.0, tk.END)
+        detail_text.configure(state="normal")
+        detail_text.delete("1.0", tk.END)
         detail_text.insert(tk.END, r.get("ocr_text", ""))
-        detail_text.config(state=tk.DISABLED)
+        detail_text.configure(state="disabled")
         status_var.set(
             f"選択中: {r['title']}  ({r['ocr_type']})  "
             f"{r['created_date']} {r['created_time']}  "
@@ -1027,7 +1100,7 @@ class OCRApp:
         else:
             self.file_var.set(r.get("title", ""))
 
-        self.save_btn.config(state=tk.NORMAL)
+        self.save_btn.configure(state="normal")
         self._status(f"DB から読み込みました: {r['title']}  ({r['ocr_type']})")
         win.destroy()
 
@@ -1044,18 +1117,18 @@ class OCRApp:
             status_var.set("削除中にエラーが発生しました")
             return
         tree.delete(sel[0])
-        detail_text.config(state=tk.NORMAL)
-        detail_text.delete(1.0, tk.END)
-        detail_text.config(state=tk.DISABLED)
+        detail_text.configure(state="normal")
+        detail_text.delete("1.0", tk.END)
+        detail_text.configure(state="disabled")
         status_var.set("削除しました")
         self._db_search(win, "", tree, detail_text, status_var)
 
     def _show_result(self, text):
         def _u():
-            self.result_text.config(state=tk.NORMAL)
-            self.result_text.delete(1.0, tk.END)
+            self.result_text.configure(state="normal")
+            self.result_text.delete("1.0", tk.END)
             self.result_text.insert(tk.END, text)
-            self.result_text.config(state=tk.DISABLED)
+            self.result_text.configure(state="disabled")
         self.root.after(0, _u)
 
     def _show_error(self, msg):
@@ -1064,6 +1137,6 @@ class OCRApp:
 
 # ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    root = tk.Tk()
+    root = ctk.CTk()
     app = OCRApp(root)
     root.mainloop()
