@@ -60,8 +60,8 @@ class OCRApp:
         
         self._saved_engine = self._load_engine_config()
         self.root.title(f"Japanese OCR App  v{VERSION} ({DATE})")
-        self.root.geometry("900x780")
-        self.root.minsize(750, 600)
+        self.root.geometry("1000x720")
+        self.root.minsize(800, 560)
         self.root.configure(fg_color=self.COLOR_BG)
 
         self.ocr_result = ""
@@ -80,165 +80,216 @@ class OCRApp:
 
     # ── UI ───────────────────────────────────────────────────
     def _build_ui(self):
-        hdr = ctk.CTkFrame(self.root, fg_color=self.COLOR_PANEL, corner_radius=12, border_color=self.COLOR_BORDER, border_width=1)
-        hdr.pack(fill=tk.X, padx=16, pady=(16, 8))
-        
-        ctk.CTkLabel(hdr, text="日本語 OCR アプリ",
-                     font=(self.FONT_JA, 20, "bold"),
-                     text_color=self.COLOR_ACCENT).pack(pady=(12, 4))
-        ctk.CTkLabel(hdr, text="日本語・英語・数字の混在 PDF に対応  |  RapidOCR / Mistral OCR / Surya OCR",
-                     font=(self.FONT_JA, 12),
-                     text_color="#94a3b8").pack()
-        ctk.CTkLabel(hdr, text=f"Version {VERSION}  （{DATE}）",
-                     font=(self.FONT_JA, 10, "bold"),
-                     text_color=self.COLOR_ACCENT).pack(pady=(4, 12))
+        # ── ヘッダー ──────────────────────────────────────────
+        hdr = ctk.CTkFrame(self.root, fg_color=self.COLOR_PANEL,
+                           corner_radius=0, border_width=0)
+        hdr.pack(fill=tk.X)
 
-        config_frame = ctk.CTkFrame(self.root, fg_color=self.COLOR_PANEL, corner_radius=12, border_color=self.COLOR_BORDER, border_width=1)
-        config_frame.pack(fill=tk.X, padx=16, pady=8)
+        hdr_left = ctk.CTkFrame(hdr, fg_color="transparent")
+        hdr_left.pack(side=tk.LEFT, padx=14, pady=10)
 
-        self._build_row(config_frame, "PDF ファイル", "file")
-        self._build_row(config_frame, "テキスト保存先フォルダ", "output")
-        self._build_engine_row(config_frame)
-        self._build_api_key_row(config_frame)
+        icon_badge = ctk.CTkFrame(hdr_left, fg_color=self.COLOR_ACCENT,
+                                  corner_radius=8, width=32, height=32)
+        icon_badge.pack(side=tk.LEFT, padx=(0, 10))
+        icon_badge.pack_propagate(False)
+        ctk.CTkLabel(icon_badge, text="文", font=(self.FONT_JA, 14, "bold"),
+                     text_color="#0f172a").pack(expand=True)
 
-        btn_row = ctk.CTkFrame(self.root, fg_color="transparent")
-        btn_row.pack(pady=12)
-        
-        self.ocr_btn = self._btn(btn_row, "OCR 開始",
-                                  self.COLOR_ACCENT, self.start_ocr, bold=True, text_color="#0f172a")
-        self.ocr_btn.pack(side=tk.LEFT, padx=6)
+        title_block = ctk.CTkFrame(hdr_left, fg_color="transparent")
+        title_block.pack(side=tk.LEFT)
+        ctk.CTkLabel(title_block, text="Japanese OCR App",
+                     font=(self.FONT_JA, 14, "bold"),
+                     text_color=self.COLOR_TEXT, anchor="w").pack(anchor="w")
+        ctk.CTkLabel(title_block, text="日本語・英語・数字の混在 PDF 対応",
+                     font=(self.FONT_JA, 10), text_color="#64748b",
+                     anchor="w").pack(anchor="w")
 
-        self.cancel_btn = self._btn(btn_row, "キャンセル",
-                                     self.COLOR_BTN_RED, self._cancel_ocr)
+        ctk.CTkLabel(hdr_left, text=f"v{VERSION}",
+                     font=(self.FONT_JA, 11), text_color=self.COLOR_ACCENT,
+                     fg_color=self.COLOR_BG, corner_radius=4,
+                     padx=8, pady=2).pack(side=tk.LEFT, padx=12)
+
+        hdr_right = ctk.CTkFrame(hdr, fg_color="transparent")
+        hdr_right.pack(side=tk.RIGHT, padx=14, pady=10)
+
+        self._btn(hdr_right, "DB 閲覧", self.COLOR_BTN_GRAY,
+                  self._open_db_viewer, height=30).pack(side=tk.LEFT, padx=4)
+        self._btn(hdr_right, "クリア", self.COLOR_BTN_GRAY,
+                  self.clear_all, height=30).pack(side=tk.LEFT, padx=4)
+
+        ctk.CTkFrame(self.root, fg_color=self.COLOR_BORDER,
+                     height=1, corner_radius=0).pack(fill=tk.X)
+
+        # ── メインエリア（左右スライド可能な分割パネル） ──────
+        paned = tk.PanedWindow(self.root, orient=tk.HORIZONTAL,
+                               bg=self.COLOR_BORDER,
+                               sashwidth=5, sashpad=0,
+                               relief=tk.FLAT, bd=0)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # ─── 左サイドバー ─────────────────────────────────────
+        sidebar = ctk.CTkFrame(paned, fg_color=self.COLOR_PANEL,
+                               corner_radius=0, border_width=0)
+        paned.add(sidebar, minsize=200, stretch="never")
+
+        sb = ctk.CTkFrame(sidebar, fg_color="transparent")
+        sb.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
+
+        self._build_sidebar_file(sb)
+        self._sidebar_sep(sb)
+        self._build_sidebar_output(sb)
+        self._sidebar_sep(sb)
+        self._build_sidebar_engine(sb)
+        self._build_sidebar_api_key(sb)
+        self._sidebar_sep(sb)
+
+        self.ocr_btn = ctk.CTkButton(
+            sb, text="▶  OCR 開始", command=self.start_ocr,
+            font=(self.FONT_JA, 15, "bold"),
+            fg_color=self.COLOR_ACCENT, text_color="#0f172a",
+            hover_color="#34d399", height=44, corner_radius=8)
+        self.ocr_btn.pack(fill=tk.X, pady=(0, 6))
+
+        self.cancel_btn = self._btn(sb, "キャンセル", self.COLOR_BTN_RED,
+                                    self._cancel_ocr)
         self.cancel_btn.configure(state="disabled")
-        self.cancel_btn.pack(side=tk.LEFT, padx=6)
+        self.cancel_btn.pack(fill=tk.X, pady=3)
 
-        self.save_btn = self._btn(btn_row, "テキスト保存",
-                                   self.COLOR_BTN_PURPLE, self.save_result)
+        self.save_btn = self._btn(sb, "テキスト保存", self.COLOR_BTN_PURPLE,
+                                  self.save_result)
         self.save_btn.configure(state="disabled")
-        self.save_btn.pack(side=tk.LEFT, padx=6)
+        self.save_btn.pack(fill=tk.X, pady=3)
 
-        self._btn(btn_row, "クリア",
-                   self.COLOR_BTN_GRAY, self.clear_all).pack(side=tk.LEFT, padx=6)
+        # ステータスカード（サイドバー下部）
+        ctk.CTkFrame(sb, fg_color="transparent").pack(fill=tk.BOTH, expand=True)
 
-        self._btn(btn_row, "DB 閲覧",
-                   self.COLOR_BTN_PURPLE, self._open_db_viewer).pack(side=tk.LEFT, padx=6)
+        status_card = ctk.CTkFrame(sb, fg_color=self.COLOR_BG,
+                                   corner_radius=8,
+                                   border_color=self.COLOR_BORDER, border_width=1)
+        status_card.pack(fill=tk.X, pady=(8, 0))
 
-        sf = ctk.CTkFrame(self.root, fg_color="transparent")
-        sf.pack(fill=tk.X, padx=20, pady=(0, 6))
-        
-        self.status_var = tk.StringVar(value="ファイルを選択して OCR 開始を押してください")
-        ctk.CTkLabel(sf, textvariable=self.status_var,
-                     font=(self.FONT_JA, 12), text_color="#94a3b8",
-                     anchor="w").pack(fill=tk.X, pady=(0, 4))
+        self.status_var = tk.StringVar(
+            value="ファイルを選択して OCR 開始を押してください")
+        ctk.CTkLabel(status_card, textvariable=self.status_var,
+                     font=(self.FONT_JA, 11), text_color="#94a3b8",
+                     anchor="w", wraplength=220).pack(
+                         fill=tk.X, padx=10, pady=(8, 6))
 
-        self.progress = ctk.CTkProgressBar(sf,
-                                           progress_color=self.COLOR_ACCENT,
-                                           fg_color=self.COLOR_BORDER,
-                                           height=8,
-                                           mode="indeterminate")
-        self.progress.pack(fill=tk.X)
+        self.progress = ctk.CTkProgressBar(
+            status_card,
+            progress_color=self.COLOR_ACCENT,
+            fg_color=self.COLOR_BORDER,
+            height=4, mode="indeterminate")
+        self.progress.pack(fill=tk.X, padx=10, pady=(0, 8))
         self.progress.set(0)
 
-        rf = ctk.CTkFrame(self.root, fg_color=self.COLOR_PANEL, corner_radius=12, border_color=self.COLOR_BORDER, border_width=1)
-        rf.pack(fill=tk.BOTH, expand=True, padx=16, pady=(8, 16))
-        
-        ctk.CTkLabel(rf, text="  OCR 結果  ",
-                     font=(self.FONT_JA, 13, "bold"),
-                     text_color=self.COLOR_TEXT).pack(anchor="w", padx=16, pady=(10, 4))
+        # ─── 右コンテンツエリア ───────────────────────────────
+        right = ctk.CTkFrame(paned, fg_color="transparent")
+        paned.add(right, minsize=300, stretch="always")
+        self.root.after(50, lambda: paned.sash_place(0, 270, 0))
+
+        result_hdr = ctk.CTkFrame(right, fg_color="transparent")
+        result_hdr.pack(fill=tk.X, pady=(0, 8))
+
+        ctk.CTkLabel(result_hdr, text="OCR 結果",
+                     font=(self.FONT_JA, 12, "bold"),
+                     text_color="#64748b").pack(side=tk.LEFT)
+
+        self._btn(result_hdr, "📋 コピー", self.COLOR_BTN_GRAY,
+                  self._copy_result, height=28).pack(side=tk.RIGHT)
 
         self.result_text = ctk.CTkTextbox(
-            rf, font=(self.FONT_JA, 14), wrap=tk.WORD,
-            fg_color="#0f172a", text_color=self.COLOR_TEXT,
+            right, font=(self.FONT_JA, 14), wrap=tk.WORD,
+            fg_color=self.COLOR_BG, text_color=self.COLOR_TEXT,
             border_color=self.COLOR_BORDER, border_width=1,
-            corner_radius=8
-        )
-        self.result_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+            corner_radius=8)
+        self.result_text.pack(fill=tk.BOTH, expand=True)
         self.result_text.configure(state="disabled")
 
-    def _build_row(self, parent, label, key):
-        f = ctk.CTkFrame(parent, fg_color="transparent")
-        f.pack(fill=tk.X, padx=16, pady=8)
-        
-        ctk.CTkLabel(f, text=label,
-                     font=(self.FONT_JA, 12, "bold"),
-                     text_color="#94a3b8", width=150,
-                     anchor="w").pack(side=tk.LEFT)
-                     
-        var = tk.StringVar()
-        setattr(self, f"{key}_var", var)
-        
-        entry = ctk.CTkEntry(f, textvariable=var,
-                             font=(self.FONT_JA, 13),
-                             fg_color="#0f172a", text_color=self.COLOR_TEXT,
-                             border_color=self.COLOR_BORDER,
-                             height=32, corner_radius=6)
-        entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        
-        cmd = self.browse_file if key == "file" else self.browse_output
-        self._btn(f, "参照...", self.COLOR_BTN_BLUE, cmd, height=32).pack(side=tk.RIGHT)
+    def _sidebar_sep(self, parent):
+        ctk.CTkFrame(parent, fg_color=self.COLOR_BORDER,
+                     height=1, corner_radius=0).pack(fill=tk.X, pady=8)
 
-    def _build_engine_row(self, parent):
-        f = ctk.CTkFrame(parent, fg_color="transparent")
-        f.pack(fill=tk.X, padx=16, pady=8)
-        
-        ctk.CTkLabel(f, text="OCR エンジン",
-                     font=(self.FONT_JA, 12, "bold"),
-                     text_color="#94a3b8", width=150,
-                     anchor="w").pack(side=tk.LEFT)
+    def _sidebar_label(self, parent, text):
+        ctk.CTkLabel(parent, text=text,
+                     font=(self.FONT_JA, 10, "bold"),
+                     text_color="#64748b", anchor="w").pack(
+                         fill=tk.X, pady=(0, 4))
 
+    def _build_sidebar_file(self, parent):
+        self._sidebar_label(parent, "PDF ファイル")
+        self.file_var = tk.StringVar()
+        ctk.CTkEntry(parent, textvariable=self.file_var,
+                     font=(self.FONT_JA, 11),
+                     fg_color=self.COLOR_BG, text_color=self.COLOR_TEXT,
+                     border_color=self.COLOR_BORDER,
+                     height=30, corner_radius=6).pack(fill=tk.X, pady=(0, 4))
+        self._btn(parent, "参照...", self.COLOR_BTN_BLUE,
+                  self.browse_file, height=28).pack(anchor="w")
+
+    def _build_sidebar_output(self, parent):
+        self._sidebar_label(parent, "保存先フォルダ")
+        self.output_var = tk.StringVar()
+        ctk.CTkEntry(parent, textvariable=self.output_var,
+                     font=(self.FONT_JA, 11),
+                     fg_color=self.COLOR_BG, text_color=self.COLOR_TEXT,
+                     border_color=self.COLOR_BORDER,
+                     height=30, corner_radius=6).pack(fill=tk.X, pady=(0, 4))
+        self._btn(parent, "参照...", self.COLOR_BTN_BLUE,
+                  self.browse_output, height=28).pack(anchor="w")
+
+    def _build_sidebar_engine(self, parent):
+        self._sidebar_label(parent, "OCR エンジン")
         self.engine_var = tk.StringVar(value=self._saved_engine)
-        
         self.engine_combo = ctk.CTkOptionMenu(
-            f,
+            parent,
             variable=self.engine_var,
             values=self._ENGINE_VALUES,
             command=self._on_engine_changed,
-            font=(self.FONT_JA, 13),
-            dropdown_font=(self.FONT_JA, 13),
+            font=(self.FONT_JA, 12),
+            dropdown_font=(self.FONT_JA, 12),
             fg_color=self.COLOR_BORDER,
             button_color=self.COLOR_BORDER,
             button_hover_color=self.COLOR_BTN_BLUE,
             dropdown_fg_color=self.COLOR_PANEL,
             dropdown_hover_color=self.COLOR_BTN_BLUE,
             dropdown_text_color=self.COLOR_TEXT,
-            height=32, corner_radius=6
-        )
-        self.engine_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            height=30, corner_radius=6)
+        self.engine_combo.pack(fill=tk.X, pady=(0, 8))
 
-    def _build_api_key_row(self, parent):
-        f = ctk.CTkFrame(parent, fg_color="transparent")
-        f.pack(fill=tk.X, padx=16, pady=(8, 12))
-        
-        ctk.CTkLabel(f, text="Mistral API キー",
-                     font=(self.FONT_JA, 12, "bold"),
-                     text_color="#94a3b8", width=150,
-                     anchor="w").pack(side=tk.LEFT)
-                     
-        self.api_key_var = tk.StringVar(value=os.environ.get("MISTRAL_API_KEY", ""))
-        
+    def _build_sidebar_api_key(self, parent):
+        self._sidebar_label(parent, "Mistral API キー")
+        self.api_key_var = tk.StringVar(
+            value=os.environ.get("MISTRAL_API_KEY", ""))
+        api_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        api_frame.pack(fill=tk.X)
         self._api_key_entry = ctk.CTkEntry(
-            f, textvariable=self.api_key_var,
-            font=(self.FONT_JA, 13), show="*",
-            fg_color="#0f172a", text_color=self.COLOR_TEXT,
+            api_frame, textvariable=self.api_key_var,
+            font=(self.FONT_JA, 11), show="*",
+            fg_color=self.COLOR_BG, text_color=self.COLOR_TEXT,
             border_color=self.COLOR_BORDER,
-            height=32, corner_radius=6)
-        self._api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-
+            height=30, corner_radius=6)
+        self._api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True,
+                                 padx=(0, 6))
         self._show_key = tk.BooleanVar(value=False)
-        chk = ctk.CTkCheckBox(f, text="表示", variable=self._show_key,
-                               command=self._toggle_api_key_visibility,
-                               font=(self.FONT_JA, 12),
-                               text_color="#94a3b8",
-                               fg_color=self.COLOR_ACCENT,
-                               border_color=self.COLOR_BORDER,
-                               checkmark_color="#0f172a",
-                               width=60)
-        chk.pack(side=tk.RIGHT)
+        ctk.CTkCheckBox(api_frame, text="表示", variable=self._show_key,
+                        command=self._toggle_api_key_visibility,
+                        font=(self.FONT_JA, 11),
+                        text_color="#94a3b8",
+                        fg_color=self.COLOR_ACCENT,
+                        border_color=self.COLOR_BORDER,
+                        checkmark_color="#0f172a",
+                        width=55).pack(side=tk.RIGHT)
 
     def _toggle_api_key_visibility(self):
         self._api_key_entry.configure(
             show="" if self._show_key.get() else "*")
+
+    def _copy_result(self):
+        if self.ocr_result:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.ocr_result)
+            self._status("テキストをクリップボードにコピーしました")
 
     def _load_engine_config(self):
         try:
