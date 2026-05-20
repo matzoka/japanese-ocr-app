@@ -5,6 +5,10 @@ RapidOCR、Mistral OCR、Surya OCR を切り替えて利用できます。
 
 ## 実行画面
 
+### セットアップ画面
+
+![セットアップ画面](docs/images/setup.png)
+
 ### メイン画面
 
 ![メイン画面](docs/images/main-window.png)
