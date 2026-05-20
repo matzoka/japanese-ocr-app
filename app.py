@@ -302,6 +302,7 @@ class OCRApp:
             messagebox.showerror("Error", "有効な PDF ファイルを選択してください。")
             return
         engine_name = self.engine_var.get()
+        api_key = None
         if engine_name == self.ENGINE_MISTRAL:
             api_key = (self.api_key_var.get().strip()
                        or os.environ.get("MISTRAL_API_KEY", "").strip())
@@ -312,6 +313,7 @@ class OCRApp:
                     "API キー欄に入力するか、環境変数 MISTRAL_API_KEY を設定してください。")
                 return
         self._cancel_flag = False
+        self._last_ocr_info = None
         self.ocr_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
         self.save_btn.configure(state="disabled")
@@ -319,7 +321,7 @@ class OCRApp:
         self._clear_result()
         self.progress.start()
         threading.Thread(target=self._run_ocr,
-                          args=(pdf_path, engine_name), daemon=True).start()
+                          args=(pdf_path, engine_name, api_key), daemon=True).start()
 
     def _cancel_ocr(self):
         self._cancel_flag = True
@@ -365,10 +367,10 @@ class OCRApp:
                 texts.append(item[1])
         return texts
 
-    def _run_ocr(self, pdf_path, engine_name):
+    def _run_ocr(self, pdf_path, engine_name, api_key=None):
         self._current_engine = engine_name
         if engine_name == self.ENGINE_MISTRAL:
-            self._run_mistral_ocr(pdf_path)
+            self._run_mistral_ocr(pdf_path, api_key)
         elif engine_name == self.ENGINE_SURYA:
             self._run_surya_ocr(pdf_path)
         else:
@@ -391,6 +393,8 @@ class OCRApp:
                 self._status(
                     f"完了！ PDF内のテキスト層から {total} ページを抽出しました。"
                 )
+                if not self._cancel_flag:
+                    self._set_last_ocr_info(pdf_path, total)
                 return
 
             if self._rapid_engine is None:
@@ -661,10 +665,8 @@ class OCRApp:
                     pass
             self.root.after(0, self._ocr_done)
 
-    def _run_mistral_ocr(self, pdf_path):
+    def _run_mistral_ocr(self, pdf_path, api_key):
         try:
-            api_key = (self.api_key_var.get().strip()
-                       or os.environ.get("MISTRAL_API_KEY", "").strip())
             if not api_key:
                 raise RuntimeError(
                     "Mistral OCR を使うには API キーが必要です。\n"
