@@ -11,3 +11,4 @@ opencode.json
 !docs/images/*.png
 *.jpg
 *.md
+!README.md
