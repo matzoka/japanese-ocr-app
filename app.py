@@ -884,15 +884,6 @@ class OCRApp:
 
     def _setup_icon(self):
         icon_ico_path = os.path.join(_HERE, "icon.ico")
-        if not os.path.exists(icon_ico_path):
-            png_path = r"C:\Users\yasuo\.gemini\antigravity\brain\f79601cc-0ea8-473c-b030-a952dff4e997\app_icon_1779234932872.png"
-            if os.path.exists(png_path):
-                try:
-                    from PIL import Image
-                    img = Image.open(png_path)
-                    img.save(icon_ico_path, format="ICO", sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
-                except Exception:
-                    pass
         if os.path.exists(icon_ico_path):
             try:
                 self.root.iconbitmap(icon_ico_path)
