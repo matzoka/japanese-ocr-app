@@ -375,6 +375,7 @@ class OCRApp:
             self._run_rapid_ocr(pdf_path)
 
     def _run_rapid_ocr(self, pdf_path):
+        pdf = None
         try:
             self._start_elapsed_status("PDF 読み込み中")
             import pypdfium2 as pdfium
@@ -383,68 +384,65 @@ class OCRApp:
             total = len(pdf)
             self._stop_elapsed_status()
 
-            try:
-                text_layer = self._extract_pdf_text_layer(pdf, total)
-                if text_layer.strip():
-                    self.ocr_result = text_layer
-                    self._show_result(self.ocr_result)
-                    self._status(
-                        f"完了！ PDF内のテキスト層から {total} ページを抽出しました。"
-                    )
-                    return
+            text_layer = self._extract_pdf_text_layer(pdf, total)
+            if text_layer.strip():
+                self.ocr_result = text_layer
+                self._show_result(self.ocr_result)
+                self._status(
+                    f"完了！ PDF内のテキスト層から {total} ページを抽出しました。"
+                )
+                return
 
-                if self._rapid_engine is None:
-                    self._start_elapsed_status("RapidOCR 初期化中")
-                    self._rapid_engine, self._api_style = self._init_rapid_engine()
-                    self._stop_elapsed_status()
-
-                import numpy as np
-                lines = []
-
-                self._start_elapsed_status(f"OCR 処理中 {total}ページ")
-                for i in range(total):
-                    if self._cancel_flag:
-                        lines.append("\n（ユーザーによりキャンセルされました）")
-                        break
-
-                    self._set_elapsed_phase(
-                        f"OCR 処理中 {i + 1}/{total}", done_pages=i)
-
-                    bitmap = pil_img = img_array = None
-                    try:
-                        page = pdf[i]
-                        bitmap = page.render(scale=300 / 72)
-                        pil_img = bitmap.to_pil().convert("RGB")
-                        img_array = np.array(pil_img)
-
-                        result = self._rapid_engine(img_array)
-                        texts = self._extract_texts(result, self._api_style)
-
-                        self._add_page_separator(lines, i + 1, total)
-
-                        if texts:
-                            for t in texts:
-                                if t and t.strip():
-                                    lines.append(japanize(t))
-                        else:
-                            lines.append(
-                                "（このページからテキストを検出できませんでした）")
-                        lines.append("")
-                    except Exception as page_err:
-                        self._add_page_separator(lines, i + 1, total)
-                        lines.append(
-                            f"（ページ {i + 1} でエラー: {page_err}）")
-                        lines.append("")
-                    finally:
-                        if bitmap is not None:
-                            del bitmap, pil_img, img_array
-
-                    self._set_elapsed_phase(
-                        f"OCR 処理中 {i + 1}/{total}", done_pages=i + 1)
-
+            if self._rapid_engine is None:
+                self._start_elapsed_status("RapidOCR 初期化中")
+                self._rapid_engine, self._api_style = self._init_rapid_engine()
                 self._stop_elapsed_status()
-            finally:
-                pdf.close()
+
+            import numpy as np
+            lines = []
+
+            self._start_elapsed_status(f"OCR 処理中 {total}ページ")
+            for i in range(total):
+                if self._cancel_flag:
+                    lines.append("\n（ユーザーによりキャンセルされました）")
+                    break
+
+                self._set_elapsed_phase(
+                    f"OCR 処理中 {i + 1}/{total}", done_pages=i)
+
+                bitmap = pil_img = img_array = None
+                try:
+                    page = pdf[i]
+                    bitmap = page.render(scale=300 / 72)
+                    pil_img = bitmap.to_pil().convert("RGB")
+                    img_array = np.array(pil_img)
+
+                    result = self._rapid_engine(img_array)
+                    texts = self._extract_texts(result, self._api_style)
+
+                    self._add_page_separator(lines, i + 1, total)
+
+                    if texts:
+                        for t in texts:
+                            if t and t.strip():
+                                lines.append(japanize(t))
+                    else:
+                        lines.append(
+                            "（このページからテキストを検出できませんでした）")
+                    lines.append("")
+                except Exception as page_err:
+                    self._add_page_separator(lines, i + 1, total)
+                    lines.append(
+                        f"（ページ {i + 1} でエラー: {page_err}）")
+                    lines.append("")
+                finally:
+                    if bitmap is not None:
+                        del bitmap, pil_img, img_array
+
+                self._set_elapsed_phase(
+                    f"OCR 処理中 {i + 1}/{total}", done_pages=i + 1)
+
+            self._stop_elapsed_status()
 
             self.ocr_result = "\n".join(lines)
             self._show_result(self.ocr_result)
@@ -453,17 +451,21 @@ class OCRApp:
                 self._set_last_ocr_info(pdf_path, total)
 
         except ImportError as exc:
-            self._stop_elapsed_status()
             self._show_error(
                 f"必要なモジュールが見つかりません:\n{exc}\n\n"
                 "setup.bat を実行してインストールしてください。")
             self._status("エラー: モジュールが不足しています")
         except Exception:
-            self._stop_elapsed_status()
             err = traceback.format_exc()
             self._show_error(f"OCR 処理中にエラーが発生しました:\n\n{err}")
             self._status("エラーが発生しました")
         finally:
+            self._stop_elapsed_status()
+            if pdf is not None:
+                try:
+                    pdf.close()
+                except Exception:
+                    pass
             self.root.after(0, self._ocr_done)
 
     def _extract_pdf_text_layer(self, pdf, total):
@@ -477,12 +479,19 @@ class OCRApp:
             self._set_elapsed_phase(
                 f"テキスト層確認中 {i + 1}/{total}", done_pages=i)
 
+            text_page = None
             try:
                 page = pdf[i]
                 text_page = page.get_textpage()
                 text = text_page.get_text_range()
             except Exception:
                 text = ""
+            finally:
+                if text_page is not None:
+                    try:
+                        text_page.close()
+                    except Exception:
+                        pass
 
             text = self._clean_pdf_text_layer(text)
             if len(text) >= self.TEXT_LAYER_MIN_PAGE_CHARS:
@@ -548,6 +557,7 @@ class OCRApp:
         }
 
     def _run_surya_ocr(self, pdf_path):
+        pdf = None
         try:
             if self._surya_engine is None:
                 self._start_elapsed_status("Surya OCR 初期化中")
@@ -561,70 +571,67 @@ class OCRApp:
 
             lines = []
             self._start_elapsed_status(f"Surya OCR 処理中 {total}ページ")
-            try:
-                for i in range(total):
-                    if self._cancel_flag:
-                        lines.append("\n（ユーザーによりキャンセルされました）")
-                        break
+            for i in range(total):
+                if self._cancel_flag:
+                    lines.append("\n（ユーザーによりキャンセルされました）")
+                    break
 
-                    self._set_elapsed_phase(
-                        f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i)
+                self._set_elapsed_phase(
+                    f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i)
 
-                    bitmap = pil_img = predictions = layout_preds = None
-                    try:
-                        page = pdf[i]
-                        bitmap = page.render(scale=300 / 72)
-                        pil_img = bitmap.to_pil().convert("RGB")
+                bitmap = pil_img = predictions = layout_preds = None
+                try:
+                    page = pdf[i]
+                    bitmap = page.render(scale=300 / 72)
+                    pil_img = bitmap.to_pil().convert("RGB")
 
-                        predictions = self._surya_engine["rec_predictor"](
-                            [pil_img],
-                            task_names=[self._surya_engine["task_name"]],
-                            det_predictor=self._surya_engine["det_predictor"],
-                        )
+                    predictions = self._surya_engine["rec_predictor"](
+                        [pil_img],
+                        task_names=[self._surya_engine["task_name"]],
+                        det_predictor=self._surya_engine["det_predictor"],
+                    )
 
-                        text_lines = predictions[0].text_lines if predictions else []
+                    text_lines = predictions[0].text_lines if predictions else []
 
-                        self._add_page_separator(lines, i + 1, total)
+                    self._add_page_separator(lines, i + 1, total)
 
-                        if text_lines:
-                            for text_line in text_lines:
-                                if text_line.text and text_line.text.strip():
-                                    lines.append(japanize(text_line.text))
-                        else:
-                            lines.append(
-                                "（このページからテキストを検出できませんでした）")
-
-                        layout_preds = self._surya_engine["layout_predictor"](
-                            [pil_img])
-                        if layout_preds:
-                            for lb in layout_preds[0].bboxes:
-                                if lb.label in ("Table", "TableOfContents"):
-                                    table_bbox = list(lb.bbox)
-                                    table_img = pil_img.crop(table_bbox)
-                                    table_results = self._surya_engine[
-                                        "table_rec_predictor"]([table_img])
-                                    for tr in table_results:
-                                        table_text = self._table_to_markdown(
-                                            tr, text_lines, table_bbox)
-                                        if table_text:
-                                            lines.append("")
-                                            lines.append("【表】")
-                                            lines.append(table_text)
-                                            lines.append("")
-                        lines.append("")
-                    except Exception as page_err:
-                        self._add_page_separator(lines, i + 1, total)
+                    if text_lines:
+                        for text_line in text_lines:
+                            if text_line.text and text_line.text.strip():
+                                lines.append(japanize(text_line.text))
+                    else:
                         lines.append(
-                            f"（ページ {i + 1} でエラー: {page_err}）")
-                        lines.append("")
-                    finally:
-                        if bitmap is not None:
-                            del bitmap, pil_img, predictions, layout_preds
+                            "（このページからテキストを検出できませんでした）")
 
-                    self._set_elapsed_phase(
-                        f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i + 1)
-            finally:
-                pdf.close()
+                    layout_preds = self._surya_engine["layout_predictor"](
+                        [pil_img])
+                    if layout_preds:
+                        for lb in layout_preds[0].bboxes:
+                            if lb.label in ("Table", "TableOfContents"):
+                                table_bbox = list(lb.bbox)
+                                table_img = pil_img.crop(table_bbox)
+                                table_results = self._surya_engine[
+                                    "table_rec_predictor"]([table_img])
+                                for tr in table_results:
+                                    table_text = self._table_to_markdown(
+                                        tr, text_lines, table_bbox)
+                                    if table_text:
+                                        lines.append("")
+                                        lines.append("【表】")
+                                        lines.append(table_text)
+                                        lines.append("")
+                    lines.append("")
+                except Exception as page_err:
+                    self._add_page_separator(lines, i + 1, total)
+                    lines.append(
+                        f"（ページ {i + 1} でエラー: {page_err}）")
+                    lines.append("")
+                finally:
+                    if bitmap is not None:
+                        del bitmap, pil_img, predictions, layout_preds
+
+                self._set_elapsed_phase(
+                    f"Surya OCR 処理中 {i + 1}/{total}", done_pages=i + 1)
 
             self._stop_elapsed_status()
             self.ocr_result = "\n".join(lines)
@@ -634,21 +641,24 @@ class OCRApp:
                 self._set_last_ocr_info(pdf_path, total)
 
         except ImportError as exc:
-            self._stop_elapsed_status()
             self._show_error(
                 f"Surya OCR 用のモジュールが見つかりません:\n{exc}\n\n"
                 "pip install surya-ocr を実行してインストールしてください。")
             self._status("エラー: モジュールが不足しています")
         except RuntimeError as exc:
-            self._stop_elapsed_status()
             self._show_error(f"Surya OCR 処理中にエラーが発生しました:\n\n{exc}")
             self._status("エラーが発生しました")
         except Exception:
-            self._stop_elapsed_status()
             err = traceback.format_exc()
             self._show_error(f"Surya OCR 処理中にエラーが発生しました:\n\n{err}")
             self._status("エラーが発生しました")
         finally:
+            self._stop_elapsed_status()
+            if pdf is not None:
+                try:
+                    pdf.close()
+                except Exception:
+                    pass
             self.root.after(0, self._ocr_done)
 
     def _run_mistral_ocr(self, pdf_path):
