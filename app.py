@@ -938,8 +938,8 @@ class OCRApp:
     def _open_db_viewer(self):
         win = ctk.CTkToplevel(self.root)
         win.title("OCR 履歴 DB 閲覧")
-        win.geometry("950x700")
-        win.minsize(750, 500)
+        win.geometry("950x720")
+        win.minsize(750, 620)
         win.configure(fg_color=self.COLOR_BG)
         win.transient(self.root)
         win.grab_set()
@@ -968,16 +968,19 @@ class OCRApp:
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         
         search_entry.bind("<Return>", lambda e: self._db_search(
-            win, search_var.get(), tree, detail_text, status_var))
+            win, search_var.get(), tree, detail_text, status_var,
+            action_buttons))
             
         self._btn(search_frm, "検索", self.COLOR_BTN_BLUE,
                   lambda: self._db_search(
-                      win, search_var.get(), tree, detail_text, status_var),
+                      win, search_var.get(), tree, detail_text, status_var,
+                      action_buttons),
                   height=32).pack(side=tk.LEFT, padx=3)
                   
         self._btn(search_frm, "全件", self.COLOR_BTN_GRAY,
                   lambda: self._db_search(
-                      win, "", tree, detail_text, status_var),
+                      win, "", tree, detail_text, status_var,
+                      action_buttons),
                   height=32).pack(side=tk.LEFT, padx=3)
 
         # テーブルフレーム
@@ -986,6 +989,7 @@ class OCRApp:
         
         columns = ("id", "date", "title", "ocr_type", "pages")
         tree = ttk.Treeview(tree_frm, columns=columns, show="headings",
+                            height=8,
                             selectmode="browse")
         tree.heading("id", text="ID")
         tree.heading("date", text="登録日")
@@ -1034,40 +1038,59 @@ class OCRApp:
             detail_frm, font=(self.FONT_JA, 13), wrap=tk.WORD,
             fg_color="#0f172a", text_color=self.COLOR_TEXT,
             border_color=self.COLOR_BORDER, border_width=1,
-            corner_radius=8
+            corner_radius=8, height=150
         )
         detail_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
         detail_text.configure(state="disabled")
 
         status_var = tk.StringVar(value="")
-        ctk.CTkLabel(win, textvariable=status_var,
-                     font=(self.FONT_JA, 11), text_color="#94a3b8",
-                     anchor="w").pack(fill=tk.X, padx=20, pady=(0, 4))
 
         # ボタンエリア
         btn_row = ctk.CTkFrame(win, fg_color="transparent")
-        btn_row.pack(pady=12)
+        btn_row.pack(side=tk.BOTTOM, pady=(4, 12))
         
-        self._btn(btn_row, "この結果を表示", self.COLOR_ACCENT,
-                  lambda: self._db_load_to_main(
-                      win, tree, detail_text, status_var),
-                  text_color="#0f172a").pack(side=tk.LEFT, padx=6)
+        load_btn = self._btn(btn_row, "この結果を表示", self.COLOR_ACCENT,
+                             lambda: self._db_load_to_main(
+                                 win, tree, detail_text, status_var),
+                             text_color="#0f172a")
+        load_btn.configure(state="disabled")
+        load_btn.pack(side=tk.LEFT, padx=6)
                   
-        self._btn(btn_row, "削除", self.COLOR_BTN_RED,
-                  lambda: self._db_delete(
-                      win, tree, detail_text, status_var)).pack(side=tk.LEFT, padx=6)
+        delete_btn = self._btn(btn_row, "削除", self.COLOR_BTN_RED,
+                               lambda: self._db_delete(
+                                   win, tree, detail_text, status_var,
+                                   action_buttons))
+        delete_btn.configure(state="disabled")
+        delete_btn.pack(side=tk.LEFT, padx=6)
                       
         self._btn(btn_row, "閉じる", self.COLOR_BTN_GRAY,
                   win.destroy).pack(side=tk.LEFT, padx=6)
 
-        tree.bind("<<TreeviewSelect>>",
-                  lambda e: self._db_on_select(tree, detail_text, status_var))
+        action_buttons = (load_btn, delete_btn)
 
-        self._db_search(win, "", tree, detail_text, status_var)
+        ctk.CTkLabel(win, textvariable=status_var,
+                     font=(self.FONT_JA, 11), text_color="#94a3b8",
+                     anchor="w").pack(side=tk.BOTTOM, fill=tk.X, padx=20,
+                                      pady=(0, 4))
+
+        tree.bind("<<TreeviewSelect>>",
+                  lambda e: self._db_on_select(
+                      tree, detail_text, status_var, action_buttons))
+
+        self._db_search(win, "", tree, detail_text, status_var, action_buttons)
         search_entry.focus_set()
 
-    def _db_search(self, win, query, tree, detail_text, status_var):
+    def _set_db_action_buttons(self, action_buttons, enabled):
+        if not action_buttons:
+            return
+        state = "normal" if enabled else "disabled"
+        for button in action_buttons:
+            button.configure(state=state)
+
+    def _db_search(self, win, query, tree, detail_text, status_var,
+                   action_buttons=None):
         tree.delete(*tree.get_children())
+        self._set_db_action_buttons(action_buttons, False)
         detail_text.configure(state="normal")
         detail_text.delete("1.0", tk.END)
         detail_text.configure(state="disabled")
@@ -1084,16 +1107,21 @@ class OCRApp:
         status_var.set(f"{len(records)} 件ヒット" if query else
                        f"全 {len(records)} 件")
 
-    def _db_on_select(self, tree, detail_text, status_var):
+    def _db_on_select(self, tree, detail_text, status_var,
+                      action_buttons=None):
         sel = tree.selection()
         if not sel:
+            self._set_db_action_buttons(action_buttons, False)
             return
+        self._set_db_action_buttons(action_buttons, True)
         record_id = int(sel[0])
         try:
             r = get_record(record_id)
         except Exception:
+            self._set_db_action_buttons(action_buttons, False)
             return
         if not r:
+            self._set_db_action_buttons(action_buttons, False)
             status_var.set("レコードが見つかりません")
             return
         detail_text.configure(state="normal")
@@ -1132,7 +1160,8 @@ class OCRApp:
         self._status(f"DB から読み込みました: {r['title']}  ({r['ocr_type']})")
         win.destroy()
 
-    def _db_delete(self, win, tree, detail_text, status_var):
+    def _db_delete(self, win, tree, detail_text, status_var,
+                   action_buttons=None):
         sel = tree.selection()
         if not sel:
             return
@@ -1149,7 +1178,8 @@ class OCRApp:
         detail_text.delete("1.0", tk.END)
         detail_text.configure(state="disabled")
         status_var.set("削除しました")
-        self._db_search(win, "", tree, detail_text, status_var)
+        self._db_search(win, "", tree, detail_text, status_var,
+                        action_buttons)
 
     def _show_result(self, text):
         def _u():
